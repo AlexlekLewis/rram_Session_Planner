@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+
+:root {
+  --background: #ffffff;
+  --foreground: #323E48;
+  --rr-pink: #E11F8F;
+  --rr-blue: #1226AA;
+  --rr-navy: #001D48;
+  --rr-light-pink: #E96BB0;
+  --rr-medium-blue: #0075C9;
+  --rr-charcoal: #323E48;
+  --rr-gradient: linear-gradient(135deg, #001D48 0%, #1226AA 40%, #E11F8F 100%);
+  --rr-gradient-reverse: linear-gradient(135deg, #E11F8F 0%, #1226AA 60%, #001D48 100%);
+  --rr-font: 'Montserrat', sans-serif;
+  --grid-line: #e5e7eb;
+  --grid-line-major: #d1d5db;
+  --grid-line-minor: #f3f4f6;
+}
+
+.dark {
+  --background: #1a1f25;
+  --foreground: #ededed;
+  --grid-line: #374151;
+  --grid-line-major: #4b5563;
+  --grid-line-minor: #1f2937;
+}
+
+* {
+  font-family: 'Montserrat', sans-serif;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Grid selection overlay */
+.grid-selection {
+  pointer-events: none;
+  background: rgba(18, 38, 170, 0.15);
+  border: 2px solid rgba(18, 38, 170, 0.4);
+  border-radius: 2px;
+}
+
+/* Session grid block styles */
+.session-block {
+  border-radius: 4px;
+  cursor: grab;
+  transition: box-shadow 0.15s ease;
+  user-select: none;
+}
+
+.session-block:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.session-block:active {
+  cursor: grabbing;
+}
+
+/* Resize handles */
+.resize-handle {
+  position: absolute;
+  z-index: 10;
+}
+
+.resize-handle-bottom {
+  bottom: 0;
+  left: 4px;
+  right: 4px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.resize-handle-right {
+  top: 4px;
+  right: 0;
+  bottom: 4px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.resize-handle-corner {
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #9CA3AF;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6B7280;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Dark Mode Overrides */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
