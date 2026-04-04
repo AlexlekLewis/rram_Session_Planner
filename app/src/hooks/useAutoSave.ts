@@ -78,8 +78,10 @@ export function useAutoSave(
       }
 
       // Execute upsert for new + modified blocks
+      // BUG-011 FIX: Use .select() to verify rows were actually written.
+      // RLS can silently block writes (returning success with 0 rows).
       if (toUpsert.length > 0) {
-        const { error: upsertError } = await supabase
+        const { data: upsertData, error: upsertError } = await supabase
           .from("sp_session_blocks")
           .upsert(
             toUpsert.map((block) => ({
@@ -105,18 +107,29 @@ export function useAutoSave(
             })),
             { onConflict: "id" }
           )
+          .select("id")
 
         if (upsertError) throw upsertError
+
+        // Verify rows were actually written — RLS can silently block with 0 rows
+        if (!upsertData || upsertData.length === 0) {
+          throw new Error("Save failed — you may not have permission to edit this session.")
+        }
       }
 
       // Execute delete for removed blocks
       if (toDelete.length > 0) {
-        const { error: deleteError } = await supabase
+        const { data: deleteData, error: deleteError } = await supabase
           .from("sp_session_blocks")
           .delete()
           .in("id", toDelete)
+          .select("id")
 
         if (deleteError) throw deleteError
+
+        if (!deleteData || deleteData.length === 0) {
+          console.warn("Delete returned 0 rows — RLS may have blocked the operation")
+        }
       }
 
       // Notify caller of saved block IDs (for realtime self-event dedup)
