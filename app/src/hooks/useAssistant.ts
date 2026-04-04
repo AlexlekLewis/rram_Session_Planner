@@ -1,0 +1,347 @@
+"use client";
+
+import { useState, useCallback, useRef } from "react";
+import { Session, SessionBlock, Activity, Squad, BlockCategory, Tier } from "@/lib/types";
+import { CATEGORY_COLOURS } from "@/lib/constants";
+import { buildSystemPrompt } from "@/lib/assistant-context";
+import { validateToolCall } from "@/lib/assistant-tools";
+
+/**
+ * Chat message in the assistant conversation
+ */
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  /** Tool calls returned by Claude — pending actions to preview/execute */
+  toolCalls?: ToolCallAction[];
+  /** Whether tool call actions have been applied */
+  actionsApplied?: boolean;
+  timestamp: Date;
+}
+
+/**
+ * A parsed tool call from Claude's response, ready for preview/execution
+ */
+export interface ToolCallAction {
+  id: string;
+  toolName: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  input: Record<string, any>;
+  /** Human-readable description of what this action does */
+  description: string;
+  /** Validation error, if any */
+  error?: string;
+}
+
+interface UseAssistantProps {
+  session: Session;
+  blocks: SessionBlock[];
+  activities: Activity[];
+  squads: Squad[];
+  sessionId: string;
+  onAddBlock: (block: Omit<SessionBlock, "id" | "created_at" | "updated_at">) => SessionBlock;
+  onUpdateBlock: (id: string, updates: Partial<SessionBlock>) => void;
+  onDeleteBlock: (id: string) => void;
+  onMoveBlock: (id: string, laneStart: number, laneEnd: number, timeStart: string, timeEnd: string) => void;
+  hasCollision: (position: { laneStart: number; laneEnd: number; timeStart: string; timeEnd: string }, excludeId?: string) => boolean;
+  copyHour: (allBlocks: SessionBlock[], sourceStart: string, sourceEnd: string, targetStart: string) => Omit<SessionBlock, "id" | "created_at" | "updated_at">[];
+}
+
+export function useAssistant({
+  session,
+  blocks,
+  activities,
+  squads,
+  sessionId,
+  onAddBlock,
+  onUpdateBlock,
+  onDeleteBlock,
+  onMoveBlock,
+  hasCollision,
+  copyHour,
+}: UseAssistantProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const messageIdCounter = useRef(0);
+
+  const genId = () => `msg_${Date.now()}_${++messageIdCounter.current}`;
+
+  /**
+   * Describe a tool call action in human-readable terms
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const describeAction = (toolName: string, input: Record<string, any>): string => {
+    switch (toolName) {
+      case "add_block":
+        return `Add "${input.name}" at ${input.time_start}-${input.time_end} in lane${input.lane_start === input.lane_end ? "" : "s"} ${input.lane_start}${input.lane_end !== input.lane_start ? `-${input.lane_end}` : ""} (${input.category}, Tier ${input.tier})`;
+      case "update_block": {
+        const changes = Object.keys(input.updates || {}).join(", ");
+        return `Update block: change ${changes}`;
+      }
+      case "move_block":
+        return `Move block to ${input.time_start}-${input.time_end}, lanes ${input.lane_start}-${input.lane_end}`;
+      case "delete_block":
+        return `Delete block`;
+      case "clear_time_range":
+        return `Clear all blocks from ${input.time_start} to ${input.time_end}`;
+      case "copy_hour":
+        return `Copy blocks from ${input.source_start}-${input.source_end} to ${input.target_start}`;
+      case "search_activities":
+        return `Search activities: "${input.query || ""}" ${input.category ? `in ${input.category}` : ""}`;
+      case "get_session_summary":
+        return `Get session summary`;
+      default:
+        return `${toolName}`;
+    }
+  };
+
+  /**
+   * Execute a single tool call action against the session grid
+   */
+  const executeAction = useCallback(
+    (action: ToolCallAction): string | null => {
+      const { toolName, input } = action;
+
+      // Validate first
+      const validationError = validateToolCall(toolName, input);
+      if (validationError) return validationError;
+
+      switch (toolName) {
+        case "add_block": {
+          // Check collision
+          const collision = hasCollision({
+            laneStart: input.lane_start,
+            laneEnd: input.lane_end,
+            timeStart: input.time_start,
+            timeEnd: input.time_end,
+          });
+          if (collision) {
+            return `Cannot place "${input.name}" — there's already a block at that position. Try a different time or lane.`;
+          }
+
+          onAddBlock({
+            session_id: sessionId,
+            activity_id: input.activity_id || undefined,
+            name: input.name,
+            lane_start: input.lane_start,
+            lane_end: input.lane_end,
+            time_start: input.time_start,
+            time_end: input.time_end,
+            colour: CATEGORY_COLOURS[input.category as BlockCategory] || "#D4D4D8",
+            category: input.category as BlockCategory,
+            tier: input.tier as Tier,
+            other_location: input.other_location,
+            coaching_notes: input.coaching_notes,
+            coaching_points: [],
+            player_groups: [],
+            equipment: [],
+            coach_assigned: input.coach_assigned,
+            sort_order: blocks.length,
+            created_by: undefined,
+          });
+          return null; // Success
+        }
+
+        case "update_block": {
+          const block = blocks.find((b) => b.id === input.block_id);
+          if (!block) return `Block not found: ${input.block_id}`;
+          onUpdateBlock(input.block_id, input.updates);
+          return null;
+        }
+
+        case "move_block": {
+          const block = blocks.find((b) => b.id === input.block_id);
+          if (!block) return `Block not found: ${input.block_id}`;
+          const collision = hasCollision(
+            { laneStart: input.lane_start, laneEnd: input.lane_end, timeStart: input.time_start, timeEnd: input.time_end },
+            input.block_id
+          );
+          if (collision) return `Cannot move — destination is occupied.`;
+          onMoveBlock(input.block_id, input.lane_start, input.lane_end, input.time_start, input.time_end);
+          return null;
+        }
+
+        case "delete_block": {
+          const block = blocks.find((b) => b.id === input.block_id);
+          if (!block) return `Block not found: ${input.block_id}`;
+          onDeleteBlock(input.block_id);
+          return null;
+        }
+
+        case "clear_time_range": {
+          const toDelete = blocks.filter(
+            (b) => b.time_start >= input.time_start && b.time_start < input.time_end
+          );
+          toDelete.forEach((b) => onDeleteBlock(b.id));
+          return null;
+        }
+
+        case "copy_hour": {
+          const copied = copyHour(blocks, input.source_start, input.source_end, input.target_start);
+          copied.forEach((b) => onAddBlock({ ...b, session_id: sessionId }));
+          return null;
+        }
+
+        case "search_activities": {
+          // Search is informational — returns results to the AI, not an action
+          const query = (input.query || "").toLowerCase();
+          const results = activities.filter((a) => {
+            if (input.category && a.category !== input.category) return false;
+            if (query && !a.name.toLowerCase().includes(query) && !a.category.includes(query)) return false;
+            return true;
+          });
+          return `Found ${results.length} activities: ${results.slice(0, 10).map((a) => a.name).join(", ")}${results.length > 10 ? "..." : ""}`;
+        }
+
+        case "get_session_summary": {
+          if (blocks.length === 0) return "The session grid is empty.";
+          return `Session has ${blocks.length} blocks from ${blocks[0]?.time_start} to ${blocks[blocks.length - 1]?.time_end}.`;
+        }
+
+        default:
+          return `Unknown action: ${toolName}`;
+      }
+    },
+    [blocks, sessionId, activities, onAddBlock, onUpdateBlock, onDeleteBlock, onMoveBlock, hasCollision, copyHour]
+  );
+
+  /**
+   * Apply all actions from a message
+   */
+  const applyActions = useCallback(
+    (messageId: string) => {
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== messageId || !msg.toolCalls || msg.actionsApplied) return msg;
+
+          const results: string[] = [];
+          for (const action of msg.toolCalls) {
+            if (action.error) {
+              results.push(`Skipped: ${action.description} — ${action.error}`);
+              continue;
+            }
+            const error = executeAction(action);
+            if (error) {
+              results.push(`Failed: ${action.description} — ${error}`);
+            } else {
+              results.push(`Applied: ${action.description}`);
+            }
+          }
+
+          return { ...msg, actionsApplied: true };
+        })
+      );
+    },
+    [executeAction]
+  );
+
+  /**
+   * Send a message to the AI assistant
+   */
+  const sendMessage = useCallback(
+    async (userText: string) => {
+      if (!userText.trim() || isLoading) return;
+
+      setError(null);
+
+      // Add user message
+      const userMsg: ChatMessage = {
+        id: genId(),
+        role: "user",
+        content: userText.trim(),
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      setIsLoading(true);
+
+      try {
+        // Build API messages from chat history
+        const apiMessages = [...messages, userMsg].map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+        // Build system prompt with current state
+        const systemPrompt = buildSystemPrompt({ session, blocks, activities, squads });
+
+        const response = await fetch("/api/assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: apiMessages, systemPrompt }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Parse Claude's response — may contain text and/or tool_use blocks
+        let textContent = "";
+        const toolCalls: ToolCallAction[] = [];
+
+        if (data.content) {
+          for (const block of data.content) {
+            if (block.type === "text") {
+              textContent += block.text;
+            } else if (block.type === "tool_use") {
+              const validationError = validateToolCall(block.name, block.input);
+              toolCalls.push({
+                id: block.id,
+                toolName: block.name,
+                input: block.input,
+                description: describeAction(block.name, block.input),
+                error: validationError || undefined,
+              });
+            }
+          }
+        }
+
+        // Add assistant message
+        const assistantMsg: ChatMessage = {
+          id: genId(),
+          role: "assistant",
+          content: textContent || (toolCalls.length > 0 ? "Here's what I'd suggest:" : "I'm not sure how to help with that."),
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          actionsApplied: false,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, assistantMsg]);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Something went wrong";
+        setError(errorMsg);
+        // Add error as assistant message
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: genId(),
+            role: "assistant",
+            content: `Sorry, I encountered an error: ${errorMsg}`,
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [messages, isLoading, session, blocks, activities, squads]
+  );
+
+  const clearChat = useCallback(() => {
+    setMessages([]);
+    setError(null);
+  }, []);
+
+  return {
+    messages,
+    isLoading,
+    error,
+    sendMessage,
+    applyActions,
+    clearChat,
+  };
+}
