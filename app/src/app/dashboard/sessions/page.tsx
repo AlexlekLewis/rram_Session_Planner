@@ -201,11 +201,11 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-56px)]">
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-56px)]">
       {/* Main content */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-6 py-6 max-w-4xl"
+        className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 max-w-4xl"
       >
         {weeks.length > 0 ? (
           <div className="space-y-8">
@@ -234,7 +234,7 @@ export default function SessionsPage() {
       </div>
 
       {/* Sidebar: Quick Stats */}
-      <aside className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 overflow-y-auto flex flex-col">
+      <aside className="hidden lg:flex w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 overflow-y-auto flex-col">
         <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6">
           <h2 className="font-bold text-rr-charcoal dark:text-white text-lg mb-6">
             Planning Summary

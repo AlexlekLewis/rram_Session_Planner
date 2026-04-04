@@ -111,12 +111,14 @@ export function SessionGrid({
   );
 
   return (
-    <div className="flex h-full bg-white dark:bg-gray-900 overflow-hidden relative">
-      {/* Time Axis (Left Column) */}
-      <TimeAxis startTime={session.start_time} endTime={session.end_time} />
+    <div className="flex h-full bg-white dark:bg-gray-900 overflow-x-auto overflow-y-hidden relative">
+      {/* Time Axis (Left Column) — sticky on horizontal scroll */}
+      <div className="sticky left-0 z-10 bg-white dark:bg-gray-900">
+        <TimeAxis startTime={session.start_time} endTime={session.end_time} />
+      </div>
 
-      {/* Main Grid Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Main Grid Area — min-width ensures all 8 lanes visible, scrollable on mobile */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-[600px]">
         {/* Lane Headers */}
         <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 sticky top-0 z-20">
           <LaneHeader />
