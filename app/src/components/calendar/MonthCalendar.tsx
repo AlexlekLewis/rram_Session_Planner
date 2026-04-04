@@ -107,7 +107,9 @@ export function MonthCalendar({
                 }
 
                 const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-                const dateStr = day.toISOString().split("T")[0];
+                // BUG-010 FIX: Use local date components instead of toISOString() which converts to UTC
+                // and shifts the date when local timezone is ahead of UTC (e.g., AEST = UTC+10)
+                const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
                 const isToday = day.toDateString() === today.toDateString();
                 const daySessions = sessions.filter((s) => s.date === dateStr);
                 const phase = getPhaseForDate(dateStr);

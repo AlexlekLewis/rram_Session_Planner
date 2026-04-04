@@ -473,7 +473,7 @@ export default function LibraryPage() {
                   </label>
                   <input
                     type="text"
-                    value={formData.equipment.join(", ")}
+                    value={Array.isArray(formData.equipment) ? formData.equipment.join(", ") : (formData.equipment || "")}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
@@ -491,7 +491,7 @@ export default function LibraryPage() {
                   </label>
                   <input
                     type="text"
-                    value={formData.tags.join(", ")}
+                    value={Array.isArray(formData.tags) ? formData.tags.join(", ") : (formData.tags || "")}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
@@ -711,7 +711,7 @@ function TierSection({ tier, tierData, onUpdate }: TierSectionProps) {
             Coaching Points (comma-separated)
           </label>
           <textarea
-            value={tierData.coaching_points?.join(", ") || ""}
+            value={Array.isArray(tierData.coaching_points) ? tierData.coaching_points.join(", ") : (tierData.coaching_points || "")}
             onChange={(e) => onUpdate(tier, "coaching_points", e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-rr-pink/20 dark:bg-gray-700 dark:text-white"
             placeholder="Optional"
@@ -725,7 +725,7 @@ function TierSection({ tier, tierData, onUpdate }: TierSectionProps) {
           </label>
           <input
             type="text"
-            value={tierData.equipment?.join(", ") || ""}
+            value={Array.isArray(tierData.equipment) ? tierData.equipment.join(", ") : (tierData.equipment || "")}
             onChange={(e) => onUpdate(tier, "equipment", e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-rr-pink/20 dark:bg-gray-700 dark:text-white"
             placeholder="Optional"

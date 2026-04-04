@@ -12,8 +12,9 @@ export function PhaseBanner({ phase }: PhaseBannerProps) {
   }
 
   // Parse dates
-  const startDate = new Date(phase.start_date);
-  const endDate = new Date(phase.end_date);
+  // Append T00:00:00 to prevent timezone shift (BUG-010 pattern)
+  const startDate = new Date(phase.start_date + "T00:00:00");
+  const endDate = new Date(phase.end_date + "T00:00:00");
 
   const startStr = startDate.toLocaleDateString("en-US", {
     month: "short",
