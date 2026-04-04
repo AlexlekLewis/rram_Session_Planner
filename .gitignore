@@ -1,0 +1,29 @@
+# Dependencies
+app/node_modules/
+node_modules/
+
+# Environment
+app/.env.local
+.env.local
+.env
+
+# Next.js
+app/.next/
+app/out/
+
+# Build
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Temp files
+/tmp/
