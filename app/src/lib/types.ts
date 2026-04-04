@@ -94,6 +94,7 @@ export interface Coach {
   bio?: string;
   avatar_url?: string;
   is_active: boolean;
+  squad_id?: string;
   created_at: string;
 }
 

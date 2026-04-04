@@ -48,13 +48,17 @@ export function useAutoSave(
       const toDelete: string[] = []
 
       // Find new and modified blocks
+      // BUG-003 FIX: Use deep equality instead of updated_at only.
+      // This catches changes made via setBlocks() that bypass updateBlock().
+      // PATTERN: JSON.stringify comparison — standard deep-equal for serializable objects.
+      // With max ~50 blocks per session, this is negligible performance cost.
       for (const block of blocks) {
         const prev = lastSaved.get(block.id)
         if (!prev) {
           // New block — not in last-saved snapshot
           toUpsert.push(block)
-        } else if (prev.updated_at !== block.updated_at) {
-          // Modified block — updated_at changed
+        } else if (JSON.stringify(prev) !== JSON.stringify(block)) {
+          // Modified block — any property changed
           toUpsert.push(block)
         }
       }

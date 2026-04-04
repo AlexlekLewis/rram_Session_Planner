@@ -20,6 +20,8 @@ import { useAutoSave } from "@/hooks/useAutoSave";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useClipboard } from "@/hooks/useClipboard";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+import { useUserRole } from "@/hooks/useUserRole";
+import { ReadOnlyGrid } from "@/components/session-grid/ReadOnlyGrid";
 
 export default function SessionPage() {
   const params = useParams();
@@ -45,6 +47,10 @@ export default function SessionPage() {
     timeStart: string;
     timeEnd: string;
   } | null>(null);
+
+  // Role check — guest coaches and players get read-only view
+  const { role } = useUserRole();
+  const canEdit = role === "head_coach" || role === "assistant_coach";
 
   // Core hooks
   const blockManager = useSessionBlocks([]);
@@ -328,30 +334,34 @@ export default function SessionPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {/* Toolbar buttons */}
+              {/* Toolbar buttons — edit controls hidden for guest_coach and player */}
               <ExportPdfButton session={session} blocks={blockManager.blocks} squads={sessionSquads} />
-              <button
-                onClick={() => setCopyHourOpen(true)}
-                className="text-xs px-3 py-1.5 bg-rr-blue/10 text-rr-blue font-semibold rounded-lg hover:bg-rr-blue/20 transition"
-              >
-                Copy Hour
-              </button>
-              <button
-                onClick={() => setLibraryOpen(!libraryOpen)}
-                className={cn(
-                  "text-xs px-3 py-1.5 font-semibold rounded-lg transition",
-                  libraryOpen ? "bg-rr-pink text-white" : "bg-rr-pink/10 text-rr-pink hover:bg-rr-pink/20"
-                )}
-              >
-                {libraryOpen ? "Close Library" : "Activity Library"}
-              </button>
-              <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
-              <SaveIndicator status={saveStatus} />
-              <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
-                {undoRedo.canUndo && <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">⌘Z</span>}
-                {undoRedo.canRedo && <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">⌘⇧Z</span>}
-                {clipboard.hasClipboard && <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">⌘V paste</span>}
-              </div>
+              {canEdit && (
+                <>
+                  <button
+                    onClick={() => setCopyHourOpen(true)}
+                    className="text-xs px-3 py-1.5 bg-rr-blue/10 text-rr-blue font-semibold rounded-lg hover:bg-rr-blue/20 transition"
+                  >
+                    Copy Hour
+                  </button>
+                  <button
+                    onClick={() => setLibraryOpen(!libraryOpen)}
+                    className={cn(
+                      "text-xs px-3 py-1.5 font-semibold rounded-lg transition",
+                      libraryOpen ? "bg-rr-pink text-white" : "bg-rr-pink/10 text-rr-pink hover:bg-rr-pink/20"
+                    )}
+                  >
+                    {libraryOpen ? "Close Library" : "Activity Library"}
+                  </button>
+                  <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
+                  <SaveIndicator status={saveStatus} />
+                  <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+                    {undoRedo.canUndo && <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">⌘Z</span>}
+                    {undoRedo.canRedo && <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">⌘⇧Z</span>}
+                    {clipboard.hasClipboard && <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">⌘V paste</span>}
+                  </div>
+                </>
+              )}
               <span className={cn(
                 "px-3 py-1 rounded-full text-xs font-semibold",
                 session.status === "published" ? "bg-green-100 text-green-800"
@@ -391,18 +401,22 @@ export default function SessionPage() {
 
       {/* Grid + Library Panel */}
       <div className="flex-1 overflow-hidden relative">
-        <SessionGrid
-          session={session}
-          blocks={blockManager.blocks}
-          selectedBlockIds={blockManager.selectedBlockIds}
-          onAddBlock={addBlock}
-          onUpdateBlock={updateBlock}
-          onDeleteBlock={deleteBlock}
-          onMoveBlock={moveBlock}
-          onDuplicateBlock={duplicateBlock}
-          onSelectBlocks={blockManager.setSelectedBlockIds}
-          hasCollision={blockManager.hasCollision}
-        />
+        {canEdit ? (
+          <SessionGrid
+            session={session}
+            blocks={blockManager.blocks}
+            selectedBlockIds={blockManager.selectedBlockIds}
+            onAddBlock={addBlock}
+            onUpdateBlock={updateBlock}
+            onDeleteBlock={deleteBlock}
+            onMoveBlock={moveBlock}
+            onDuplicateBlock={duplicateBlock}
+            onSelectBlocks={blockManager.setSelectedBlockIds}
+            hasCollision={blockManager.hasCollision}
+          />
+        ) : (
+          <ReadOnlyGrid session={session} blocks={blockManager.blocks} />
+        )}
 
         {/* Activity Library Panel */}
         <LibraryPanel
