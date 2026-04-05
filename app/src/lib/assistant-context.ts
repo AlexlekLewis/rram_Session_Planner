@@ -62,7 +62,8 @@ export function buildSystemPrompt(ctx: AssistantContext): string {
   const sessionsSummary = allSessions.length > 0
     ? allSessions.map((s) => {
         const sSquads = squads.filter((sq) => s.squad_ids?.includes(sq.id)).map((sq) => sq.name).join(", ");
-        return `- ${s.date} ${s.start_time}-${s.end_time} | ${sSquads} | "${s.theme || "No theme"}" [${s.status}]`;
+        const dayName = new Date(s.date + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short" });
+        return `- ${dayName} ${s.date} ${s.start_time}-${s.end_time} | ${sSquads} | "${s.theme || "No theme"}" [${s.status}]`;
       }).join("\n")
     : "No sessions scheduled.";
 
@@ -99,7 +100,7 @@ ${phaseSummary}
 ${sessionsSummary}
 
 ## CURRENT SESSION ${session ? "(Active)" : "(Not viewing a specific session)"}
-${session ? `- **Date:** ${session.date}
+${session ? `- **Date:** ${new Date(session.date + "T00:00:00").toLocaleDateString("en-AU", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} (${session.date})
 - **Time:** ${session.start_time} to ${session.end_time}
 - **Squad(s):** ${squadNames}
 - **Venue:** Cutting Edge Cricket Centre (CEC), Bundoora
