@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Session, Squad, Phase } from "@/lib/types";
+import { Session, Squad, Phase, Player } from "@/lib/types";
 import { WeekGroup } from "@/components/session-list/WeekGroup";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +32,7 @@ function SessionsContent() {
   const searchParams = useSearchParams();
   const [sessions, setSessions] = useState<SessionWithRelations[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [phases, setPhases] = useState<Phase[]>([]);
   const [weeks, setWeeks] = useState<WeekData[]>([]);
@@ -78,6 +79,11 @@ function SessionsContent() {
 
         if (phasesError) throw phasesError;
 
+        // Fetch players
+        const { data: playersData } = await supabase
+          .from("sp_players")
+          .select("*");
+
         // Process sessions with squad lookup
         const processedSessions: (Session & { squads: Squad[] })[] = (sessionsData || []).map((session: Session & { squad_ids?: string[] }) => ({
           ...session,
@@ -92,6 +98,7 @@ function SessionsContent() {
 
         setSessions(processedSessions);
         setSquads(squadsData || []);
+        setPlayers(playersData || []);
         setPhases(phasesData || []);
 
         // Calculate stats
@@ -230,6 +237,7 @@ function SessionsContent() {
                   weekEnd={week.weekEnd}
                   sessions={week.sessions}
                   squads={squads}
+                  players={players}
                 />
               </div>
             ))}

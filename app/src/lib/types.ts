@@ -84,6 +84,18 @@ export interface SquadSessionDay {
   time: string;
 }
 
+export interface Player {
+  id: string;
+  program_id: string;
+  first_name: string;
+  last_name: string;
+  squad_ids: string[];
+  cricket_type?: "male" | "female";
+  dob?: string;
+  club?: string;
+  created_at: string;
+}
+
 export interface Coach {
   id: string;
   user_id?: string;

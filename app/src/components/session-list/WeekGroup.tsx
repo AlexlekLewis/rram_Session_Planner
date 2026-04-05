@@ -1,6 +1,6 @@
 "use client";
 
-import { Session, Squad } from "@/lib/types";
+import { Session, Squad, Player } from "@/lib/types";
 import { SessionCard } from "./SessionCard";
 
 interface WeekGroupProps {
@@ -9,6 +9,7 @@ interface WeekGroupProps {
   weekEnd: Date;
   sessions: Session[];
   squads: Squad[];
+  players?: Player[];
 }
 
 export function WeekGroup({
@@ -17,6 +18,7 @@ export function WeekGroup({
   weekEnd,
   sessions,
   squads,
+  players,
 }: WeekGroupProps) {
   // Format week header: "Week N (Apr 14-20)"
   const weekStartStr = weekStart.toLocaleDateString("en-AU", {
@@ -39,7 +41,7 @@ export function WeekGroup({
       <div className="space-y-2">
         {sessions.length > 0 ? (
           sessions.map((session) => (
-            <SessionCard key={session.id} session={session} squads={squads} />
+            <SessionCard key={session.id} session={session} squads={squads} players={players} />
           ))
         ) : (
           <div className="py-6 text-center text-sm text-gray-400 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg">

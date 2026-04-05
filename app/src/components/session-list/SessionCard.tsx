@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Session, Squad } from "@/lib/types";
+import { Session, Squad, Player } from "@/lib/types";
 import { formatTime } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { SquadBadge } from "@/components/shared/SquadBadge";
@@ -9,9 +9,10 @@ import { SquadBadge } from "@/components/shared/SquadBadge";
 interface SessionCardProps {
   session: Session;
   squads: Squad[];
+  players?: Player[];
 }
 
-export function SessionCard({ session, squads }: SessionCardProps) {
+export function SessionCard({ session, squads, players }: SessionCardProps) {
   const router = useRouter();
 
   // Get squad data for this session
@@ -76,7 +77,7 @@ export function SessionCard({ session, squads }: SessionCardProps) {
       {sessionSquads.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {sessionSquads.map((squad) => (
-            <SquadBadge key={squad.id} name={squad.name} colour={squad.colour} size="sm" />
+            <SquadBadge key={squad.id} name={squad.name} colour={squad.colour} size="sm" squadId={squad.id} players={players} />
           ))}
         </div>
       )}
