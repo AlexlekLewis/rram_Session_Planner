@@ -109,7 +109,7 @@ export function useAssistant({
       .eq("is_active", true)
       .order("created_at", { ascending: false })
       .limit(50)
-      .then(({ data }) => {
+      .then(({ data }: { data: { category: string; title: string; content: string }[] | null }) => {
         if (data) setKnowledge(data);
       });
   }, []);
@@ -124,7 +124,8 @@ export function useAssistant({
       .order("created_at", { ascending: true });
 
     if (data) {
-      const loaded: ChatMessage[] = data.map((m) => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const loaded: ChatMessage[] = data.map((m: any) => ({
         id: m.id,
         role: m.role as "user" | "assistant",
         content: m.content,

@@ -55,7 +55,7 @@ export default function PlayerSessionPage() {
         // Enrich session with squad data
         const sessionSquads = (sessionData?.squad_ids || [])
           .map((squadId: string) =>
-            (squadsData || []).find((s) => s.id === squadId)
+            (squadsData || []).find((s: { id: string }) => s.id === squadId)
           )
           .filter(Boolean);
 

@@ -49,7 +49,7 @@ export default function DashboardLayout({
   const [globalSquads, setGlobalSquads] = useState<Squad[]>([]);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(({ data }: { data: { user: { email?: string } | null } }) => {
       setUserEmail(data.user?.email ?? "");
     });
   }, [supabase]);

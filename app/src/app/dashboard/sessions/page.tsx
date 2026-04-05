@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Session, Squad, Phase } from "@/lib/types";
@@ -20,6 +20,14 @@ interface WeekData {
 }
 
 export default function SessionsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-400">Loading sessions...</div>}>
+      <SessionsContent />
+    </Suspense>
+  );
+}
+
+function SessionsContent() {
   const supabase = createClient();
   const searchParams = useSearchParams();
   const [sessions, setSessions] = useState<SessionWithRelations[]>([]);
@@ -71,7 +79,7 @@ export default function SessionsPage() {
         if (phasesError) throw phasesError;
 
         // Process sessions with squad lookup
-        const processedSessions = (sessionsData || []).map((session) => ({
+        const processedSessions: (Session & { squads: Squad[] })[] = (sessionsData || []).map((session: Session & { squad_ids?: string[] }) => ({
           ...session,
           squads: session.squad_ids
             ? session.squad_ids

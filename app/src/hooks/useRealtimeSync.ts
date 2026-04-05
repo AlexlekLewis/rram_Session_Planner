@@ -77,7 +77,7 @@ export function useRealtimeSync({
 
     const channel = supabase
       .channel(`session-blocks:${sessionId}`)
-      .on<Record<string, unknown>>(
+      .on(
         "postgres_changes",
         {
           event: "INSERT",
@@ -92,7 +92,7 @@ export function useRealtimeSync({
           }
         }
       )
-      .on<Record<string, unknown>>(
+      .on(
         "postgres_changes",
         {
           event: "UPDATE",
@@ -107,7 +107,7 @@ export function useRealtimeSync({
           }
         }
       )
-      .on<Record<string, unknown>>(
+      .on(
         "postgres_changes",
         {
           event: "DELETE",
