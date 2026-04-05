@@ -5,14 +5,10 @@ import { Session, SessionBlock, Activity, Squad, Program, Phase, BlockCategory, 
 import { CATEGORY_COLOURS } from "@/lib/constants";
 import { buildSystemPrompt } from "@/lib/assistant-context";
 import { validateToolCall } from "@/lib/assistant-tools";
+import { executeAdminAction, describeAdminAction, validateAdminToolCall } from "@/lib/admin-tools";
 import { createClient } from "@/lib/supabase/client";
 
-/** Shift a YYYY-MM-DD date string by N days */
-function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+// shiftDate removed — H5 fix now uses server-side RPC for atomic date shifts
 
 /**
  * An image or PDF attachment on a chat message
@@ -83,6 +79,7 @@ interface UseAssistantProps {
   phases?: Phase[];
   allSessions?: Session[];
   onSessionUpdated?: () => void;
+  isAdmin?: boolean;
 }
 
 /** Thread summary for the thread selector */
@@ -104,6 +101,7 @@ export function useAssistant({
   program,
   phases = [],
   allSessions = [],
+  isAdmin = false,
 }: UseAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -115,6 +113,9 @@ export function useAssistant({
   const supabaseRef = useRef(createClient());
   const initialLoadDoneRef = useRef(false);
   const threadCreationPromiseRef = useRef<Promise<string | null> | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  messagesRef.current = messages;
+  const isLoadingRef = useRef(false);
 
   // Load coaching knowledge base on mount
   useEffect(() => {
@@ -298,6 +299,10 @@ export function useAssistant({
       case "forget":
         return `Forget knowledge entry`;
       default:
+        // Check if it's an admin tool
+        if (toolName.startsWith("admin_")) {
+          return describeAdminAction(toolName, input);
+        }
         return `${toolName}`;
     }
   };
@@ -323,8 +328,10 @@ export function useAssistant({
       const copyHour = active?.copyHour;
       const onUpdateSession = active?.onUpdateSession;
 
-      // Validate first
-      const validationError = validateToolCall(toolName, input);
+      // Validate first (check both standard and admin tools)
+      const validationError = toolName.startsWith("admin_")
+        ? validateAdminToolCall(toolName, input)
+        : validateToolCall(toolName, input);
       if (validationError) return validationError;
 
       switch (toolName) {
@@ -472,29 +479,13 @@ export function useAssistant({
 
         case "shift_program_dates": {
           try {
+            if (!program) return "No program loaded.";
             const supabase = createClient();
-            const days = input.days;
-
-            // Shift program dates
-            if (program) {
-              const newStart = shiftDate(program.start_date, days);
-              const newEnd = shiftDate(program.end_date, days);
-              await supabase.from("sp_programs").update({ start_date: newStart, end_date: newEnd }).eq("id", program.id);
-            }
-
-            // Shift all phase dates
-            for (const phase of phases) {
-              const newStart = shiftDate(phase.start_date, days);
-              const newEnd = shiftDate(phase.end_date, days);
-              await supabase.from("sp_phases").update({ start_date: newStart, end_date: newEnd }).eq("id", phase.id);
-            }
-
-            // Shift all session dates
-            for (const sess of allSessions) {
-              const newDate = shiftDate(sess.date, days);
-              await supabase.from("sp_sessions").update({ date: newDate }).eq("id", sess.id);
-            }
-
+            const { error } = await supabase.rpc("shift_program_dates", {
+              p_program_id: program.id,
+              p_days: input.days,
+            });
+            if (error) return `Failed to shift dates: ${error.message}`;
             if (onSessionUpdated) onSessionUpdated();
             return null;
           } catch (err) {
@@ -636,11 +627,38 @@ export function useAssistant({
           }
         }
 
-        default:
+        default: {
+          // Check if it's an admin tool
+          if (toolName.startsWith("admin_") && isAdmin) {
+            const supabase = createClient();
+            const result = await executeAdminAction(toolName, input, supabase);
+
+            // Audit log all admin actions
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              await supabase.from("sp_admin_audit_log").insert({
+                user_id: user?.id,
+                tool_name: toolName,
+                input,
+                result: result || "success",
+                thread_id: threadId,
+              });
+            } catch {
+              console.warn("Failed to log admin action to audit trail");
+            }
+
+            // Refresh data after mutations
+            if (!toolName.includes("query") && !toolName.includes("integrity") && !toolName.includes("list_audit")) {
+              if (onSessionUpdated) onSessionUpdated();
+            }
+
+            return result;
+          }
           return `Unknown action: ${toolName}`;
+        }
       }
     },
-    [getActiveSession, activities, squads, program, phases, allSessions, onSessionUpdated]
+    [getActiveSession, activities, squads, program, phases, allSessions, onSessionUpdated, isAdmin, threadId]
   );
 
   /**
@@ -679,7 +697,7 @@ export function useAssistant({
    */
   const sendMessage = useCallback(
     async (userText: string, attachments?: Attachment[]) => {
-      if ((!userText.trim() && (!attachments || attachments.length === 0)) || isLoading) return;
+      if ((!userText.trim() && (!attachments || attachments.length === 0)) || isLoadingRef.current) return;
 
       setError(null);
 
@@ -693,6 +711,7 @@ export function useAssistant({
       };
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
+      isLoadingRef.current = true;
 
       try {
         // Create thread lazily on first message (with race-condition guard)
@@ -704,9 +723,12 @@ export function useAssistant({
           } else {
             const promise = createThread(userText.trim() || "Image attachment");
             threadCreationPromiseRef.current = promise;
-            currentThreadId = await promise;
-            threadCreationPromiseRef.current = null;
-            if (currentThreadId) setThreadId(currentThreadId);
+            try {
+              currentThreadId = await promise;
+              if (currentThreadId) setThreadId(currentThreadId);
+            } finally {
+              threadCreationPromiseRef.current = null;
+            }
           }
         }
 
@@ -717,7 +739,7 @@ export function useAssistant({
 
         // Build API messages from chat history
         // For the current message, include image content blocks if attachments exist
-        const apiMessages = [...messages, userMsg].map((m) => {
+        const apiMessages = [...messagesRef.current, userMsg].map((m) => {
           // If this message has attachments with base64 data, send as multi-block content
           if (m.attachments && m.attachments.some(a => a.data)) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -768,12 +790,13 @@ export function useAssistant({
           phases,
           allSessions,
           knowledge,
+          isAdmin,
         });
 
         const response = await fetch("/api/assistant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, systemPrompt }),
+          body: JSON.stringify({ messages: apiMessages, systemPrompt, isAdmin }),
         });
 
         if (!response.ok) {
@@ -792,7 +815,9 @@ export function useAssistant({
             if (block.type === "text") {
               textContent += block.text;
             } else if (block.type === "tool_use") {
-              const validationError = validateToolCall(block.name, block.input);
+              const validationError = block.name.startsWith("admin_")
+                ? validateAdminToolCall(block.name, block.input)
+                : validateToolCall(block.name, block.input);
               toolCalls.push({
                 id: block.id,
                 toolName: block.name,
@@ -800,6 +825,74 @@ export function useAssistant({
                 description: describeAction(block.name, block.input),
                 error: validationError || undefined,
               });
+            }
+          }
+        }
+
+        // H2 fix: Auto-execute informational tools and get follow-up response
+        const INFORMATIONAL_TOOLS = new Set([
+          "recall", "search_activities", "get_session_summary", "list_sessions",
+          "get_knowledge_base",
+        ]);
+
+        if (data.stop_reason === "tool_use" && toolCalls.length > 0) {
+          const allInformational = toolCalls.every(tc => INFORMATIONAL_TOOLS.has(tc.toolName) && !tc.error);
+
+          if (allInformational) {
+            // Execute all informational tools
+            const toolResults = [];
+            for (const tc of toolCalls) {
+              const result = await executeAction(tc);
+              toolResults.push({
+                type: "tool_result" as const,
+                tool_use_id: tc.id,
+                content: typeof result === "string" ? result : "Action completed successfully.",
+              });
+            }
+
+            // Build follow-up messages with tool results
+            const followUpApiMessages = [
+              ...apiMessages,
+              { role: "assistant" as const, content: data.content },
+              ...toolResults.map(tr => ({ role: "user" as const, content: [tr] })),
+            ];
+
+            try {
+              const followUpResponse = await fetch("/api/assistant", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ messages: followUpApiMessages, systemPrompt, isAdmin }),
+              });
+
+              if (followUpResponse.ok) {
+                const followUpData = await followUpResponse.json();
+                // Replace text content with follow-up response
+                textContent = "";
+                toolCalls.length = 0; // Clear informational tool calls
+
+                if (followUpData.content) {
+                  for (const block of followUpData.content) {
+                    if (block.type === "text") {
+                      textContent += block.text;
+                    } else if (block.type === "tool_use") {
+                      const validationError = block.name.startsWith("admin_")
+                ? validateAdminToolCall(block.name, block.input)
+                : validateToolCall(block.name, block.input);
+                      toolCalls.push({
+                        id: block.id,
+                        toolName: block.name,
+                        input: block.input,
+                        description: describeAction(block.name, block.input),
+                        error: validationError || undefined,
+                      });
+                    }
+                  }
+                }
+              }
+            } catch {
+              // If follow-up fails, show original informational tool results as text
+              textContent = toolCalls.map(tc => `${tc.toolName}: ${tc.description}`).join("\n");
+              toolCalls.length = 0;
             }
           }
         }
@@ -840,11 +933,12 @@ export function useAssistant({
           },
         ]);
       } finally {
+        isLoadingRef.current = false;
         setIsLoading(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [messages, isLoading, getActiveSession, activities, squads, threadId, createThread, saveMessage, loadThreads, knowledge, program, phases, allSessions]
+    [getActiveSession, activities, squads, threadId, createThread, saveMessage, loadThreads, knowledge, program, phases, allSessions, isAdmin]
   );
 
   const clearChat = useCallback(() => {

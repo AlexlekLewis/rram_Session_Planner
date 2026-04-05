@@ -177,6 +177,7 @@ export default function DashboardLayout({
           allSessions={allSessions}
           fetchGlobalData={fetchGlobalData}
           router={router}
+          isAdmin={isAdmin}
         />
       )}
     </div>
@@ -242,6 +243,7 @@ function GlobalAssistant({
   allSessions,
   fetchGlobalData,
   router,
+  isAdmin,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -252,6 +254,7 @@ function GlobalAssistant({
   allSessions: Session[];
   fetchGlobalData: () => Promise<void>;
   router: ReturnType<typeof useRouter>;
+  isAdmin: boolean;
 }) {
   // Read active session context via ref-based getter (no re-render on session data changes)
   const { getActiveSession } = useAssistantSessionContext();
@@ -271,6 +274,7 @@ function GlobalAssistant({
     phases,
     allSessions,
     onSessionUpdated,
+    isAdmin,
   });
 
   return (

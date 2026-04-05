@@ -47,10 +47,15 @@ export default function MonthPage() {
         // In overview mode, fetch ALL program sessions
         // In detail mode, fetch current month only
         if (programData) {
+          // Extend start date by 14 days before program start to capture Assessment/Week 0 sessions
+          const bufferStart = new Date(programData.start_date + "T00:00:00");
+          bufferStart.setDate(bufferStart.getDate() - 14);
+          const bufferStartStr = `${bufferStart.getFullYear()}-${String(bufferStart.getMonth() + 1).padStart(2, "0")}-${String(bufferStart.getDate()).padStart(2, "0")}`;
+
           const { data: sessionsData } = await supabase
             .from("sp_sessions")
             .select("*")
-            .gte("date", programData.start_date)
+            .gte("date", bufferStartStr)
             .lte("date", programData.end_date)
             .order("date");
           setSessions(sessionsData || []);
@@ -108,10 +113,12 @@ export default function MonthPage() {
   // Generate months for the program
   const programMonths = (() => {
     if (!program) return [];
-    const start = new Date(program.start_date + "T00:00:00");
+    // Extend start by 14 days before program start to include pre-season month
+    const bufferStart = new Date(program.start_date + "T00:00:00");
+    bufferStart.setDate(bufferStart.getDate() - 14);
     const end = new Date(program.end_date + "T00:00:00");
     const months: Date[] = [];
-    const current = new Date(start.getFullYear(), start.getMonth(), 1);
+    const current = new Date(bufferStart.getFullYear(), bufferStart.getMonth(), 1);
     while (current <= end) {
       months.push(new Date(current));
       current.setMonth(current.getMonth() + 1);

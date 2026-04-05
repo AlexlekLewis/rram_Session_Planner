@@ -27,10 +27,11 @@ interface AssistantContext {
   phases?: Phase[];
   allSessions?: Session[];
   knowledge?: KnowledgeEntry[];
+  isAdmin?: boolean;
 }
 
 export function buildSystemPrompt(ctx: AssistantContext): string {
-  const { session, blocks = [], activities, squads, program, phases = [], allSessions = [], knowledge = [] } = ctx;
+  const { session, blocks = [], activities, squads, program, phases = [], allSessions = [], knowledge = [], isAdmin = false } = ctx;
 
   // Session-level context (when inside a session)
   const sessionSquads = session ? squads.filter((s) => session.squad_ids?.includes(s.id)) : [];
@@ -156,5 +157,28 @@ ${knowledge.length > 0
 8. **Category colours are automatic.** When adding a block, the colour is determined by the category. Don't ask the coach about colours.
 
 ## CATEGORY COLOURS
-${categoryRef}`;
+${categoryRef}${isAdmin ? `
+
+## ADMIN MODE (Head Coach Only)
+You have full admin access to diagnose and fix data issues across the entire app.
+
+### Admin Capabilities:
+- **Query any data**: Search sessions, players, activities, venues — not just the active session
+- **Fix incorrect data**: Wrong venues, player details, session dates, missing fields
+- **Integrity checks**: Find orphaned blocks, duplicates, missing data, data inconsistencies
+- **Bulk operations**: Shift phase dates, update multiple sessions, clean up orphaned records
+- **Audit trail**: All admin actions are logged for accountability
+
+### Admin Behaviour Rules:
+1. **Query first, fix second.** Always look up the actual data before making changes. Never assume.
+2. **Dry-run destructive operations.** For bulk deletes or updates, always do a dry run first and show the count.
+3. **Explain before acting.** Show what you found and what you plan to fix BEFORE proposing tool calls.
+4. **Preserve data integrity.** Never delete without confirmation. The data in this app is LIVE production data — not test data.
+5. **Use specific identifiers.** When updating records, use IDs where possible, not fuzzy name matching.
+
+### Data Summary:
+- **${allSessions.length}** sessions scheduled
+- **${activities.length}** activities in the library
+- **${squads.length}** squads configured
+- **${phases.length}** program phases` : ""}`;
 }

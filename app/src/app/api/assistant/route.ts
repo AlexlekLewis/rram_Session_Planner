@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ASSISTANT_TOOLS } from "@/lib/assistant-tools";
+import { ADMIN_TOOLS } from "@/lib/admin-tools";
 
 /**
  * AI Coaching Assistant API Route
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { messages, systemPrompt } = body;
+    const { messages, systemPrompt, isAdmin } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "messages array is required" }, { status: 400 });
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
         max_tokens: 4096,
         system: systemPrompt,
         messages: messages.slice(-20), // Trim to last 20 messages to manage context
-        tools: ASSISTANT_TOOLS,
+        tools: isAdmin ? [...ASSISTANT_TOOLS, ...ADMIN_TOOLS] : ASSISTANT_TOOLS,
       }),
     });
 

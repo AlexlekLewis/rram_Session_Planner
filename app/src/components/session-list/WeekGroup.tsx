@@ -34,7 +34,7 @@ export function WeekGroup({
     <div className="space-y-3">
       {/* Week header */}
       <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300 px-1">
-        Week {weekNumber} ({weekStartStr}–{weekEndStr})
+        {weekNumber <= 0 ? "Pre-Season" : `Week ${weekNumber}`} ({weekStartStr}–{weekEndStr})
       </h2>
 
       {/* Sessions container */}
