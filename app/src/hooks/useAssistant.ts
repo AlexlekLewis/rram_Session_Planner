@@ -5,6 +5,7 @@ import { Session, SessionBlock, Activity, Squad, BlockCategory, Tier } from "@/l
 import { CATEGORY_COLOURS } from "@/lib/constants";
 import { buildSystemPrompt } from "@/lib/assistant-context";
 import { validateToolCall } from "@/lib/assistant-tools";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Chat message in the assistant conversation
@@ -46,6 +47,8 @@ interface UseAssistantProps {
   onMoveBlock: (id: string, laneStart: number, laneEnd: number, timeStart: string, timeEnd: string) => void;
   hasCollision: (position: { laneStart: number; laneEnd: number; timeStart: string; timeEnd: string }, excludeId?: string) => boolean;
   copyHour: (allBlocks: SessionBlock[], sourceStart: string, sourceEnd: string, targetStart: string) => Omit<SessionBlock, "id" | "created_at" | "updated_at">[];
+  onUpdateSession: (updates: Partial<Session>) => Promise<void>;
+  onSessionUpdated: () => void;
 }
 
 export function useAssistant({
@@ -60,6 +63,8 @@ export function useAssistant({
   onMoveBlock,
   hasCollision,
   copyHour,
+  onUpdateSession,
+  onSessionUpdated,
 }: UseAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -92,6 +97,12 @@ export function useAssistant({
         return `Search activities: "${input.query || ""}" ${input.category ? `in ${input.category}` : ""}`;
       case "get_session_summary":
         return `Get session summary`;
+      case "update_session": {
+        const changes = Object.keys(input).filter(k => input[k] !== undefined).join(", ");
+        return `Update session: ${changes}`;
+      }
+      case "create_activity":
+        return `Create new activity: "${input.name}" (${input.category})`;
       default:
         return `${toolName}`;
     }
@@ -101,7 +112,7 @@ export function useAssistant({
    * Execute a single tool call action against the session grid
    */
   const executeAction = useCallback(
-    (action: ToolCallAction): string | null => {
+    async (action: ToolCallAction): Promise<string | null> => {
       const { toolName, input } = action;
 
       // Validate first
@@ -197,44 +208,81 @@ export function useAssistant({
 
         case "get_session_summary": {
           if (blocks.length === 0) return "The session grid is empty.";
-          return `Session has ${blocks.length} blocks from ${blocks[0]?.time_start} to ${blocks[blocks.length - 1]?.time_end}.`;
+          const sorted = [...blocks].sort((a, b) => a.time_start.localeCompare(b.time_start));
+          return `Session has ${blocks.length} blocks from ${sorted[0]?.time_start} to ${sorted[sorted.length - 1]?.time_end}.`;
+        }
+
+        case "update_session": {
+          try {
+            // Build updates object from input, filtering out undefined values
+            const updates: Partial<Session> = {};
+            if (input.date) updates.date = input.date;
+            if (input.start_time) updates.start_time = input.start_time;
+            if (input.end_time) updates.end_time = input.end_time;
+            if (input.theme !== undefined) updates.theme = input.theme;
+            if (input.status) updates.status = input.status;
+            if (input.notes !== undefined) updates.notes = input.notes;
+
+            // Execute via the session page's update handler
+            onUpdateSession(updates);
+            onSessionUpdated();
+            return null; // Success
+          } catch (err) {
+            return `Failed to update session: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "create_activity": {
+          try {
+            const supabase = createClient();
+            const { error } = await supabase.from("sp_activities").insert({
+              name: input.name,
+              category: input.category,
+              sub_category: input.sub_category || null,
+              description: input.description,
+              default_duration_mins: input.default_duration_mins || 15,
+              default_lanes: input.default_lanes || 1,
+              regression: input.regression || {},
+              progression: input.progression || {},
+              elite: input.elite || {},
+              gamify: input.gamify || {},
+              is_global: true,
+            });
+            if (error) return `Failed to create activity: ${error.message}`;
+            return null; // Success
+          } catch (err) {
+            return `Failed to create activity: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
         }
 
         default:
           return `Unknown action: ${toolName}`;
       }
     },
-    [blocks, sessionId, activities, onAddBlock, onUpdateBlock, onDeleteBlock, onMoveBlock, hasCollision, copyHour]
+    [blocks, sessionId, activities, onAddBlock, onUpdateBlock, onDeleteBlock, onMoveBlock, hasCollision, copyHour, onUpdateSession, onSessionUpdated]
   );
 
   /**
    * Apply all actions from a message
    */
   const applyActions = useCallback(
-    (messageId: string) => {
+    async (messageId: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (!msg || !msg.toolCalls || msg.actionsApplied) return;
+
+      for (const action of msg.toolCalls) {
+        if (action.error) continue;
+        const error = await executeAction(action);
+        if (error) {
+          console.warn(`Action failed: ${action.description} — ${error}`);
+        }
+      }
+
       setMessages((prev) =>
-        prev.map((msg) => {
-          if (msg.id !== messageId || !msg.toolCalls || msg.actionsApplied) return msg;
-
-          const results: string[] = [];
-          for (const action of msg.toolCalls) {
-            if (action.error) {
-              results.push(`Skipped: ${action.description} — ${action.error}`);
-              continue;
-            }
-            const error = executeAction(action);
-            if (error) {
-              results.push(`Failed: ${action.description} — ${error}`);
-            } else {
-              results.push(`Applied: ${action.description}`);
-            }
-          }
-
-          return { ...msg, actionsApplied: true };
-        })
+        prev.map((m) => (m.id === messageId ? { ...m, actionsApplied: true } : m))
       );
     },
-    [executeAction]
+    [messages, executeAction]
   );
 
   /**

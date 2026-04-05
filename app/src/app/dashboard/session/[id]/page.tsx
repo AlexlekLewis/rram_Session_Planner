@@ -242,21 +242,6 @@ export default function SessionPage() {
     [blockManager, clipboard, undoRedo, sessionId]
   );
 
-  // AI Assistant — uses the same addBlock/updateBlock/deleteBlock/moveBlock as the manual UI
-  const assistant = useAssistant({
-    session: session!,
-    blocks: blockManager.blocks,
-    activities: allActivities,
-    squads,
-    sessionId,
-    onAddBlock: addBlock,
-    onUpdateBlock: updateBlock,
-    onDeleteBlock: deleteBlock,
-    onMoveBlock: moveBlock,
-    hasCollision: blockManager.hasCollision,
-    copyHour: clipboard.copyHour,
-  });
-
   // Library drag-drop: when activity dropped on grid, show tier selector
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleLibraryDrop = useCallback(
@@ -315,6 +300,27 @@ export default function SessionPage() {
     setSession((prev) => prev ? { ...prev, ...updates } : prev);
     if (updates.theme !== undefined) setTheme(updates.theme || "");
   }, [supabase, sessionId]);
+
+  // AI Assistant — admin-level access to modify sessions, create activities, manage blocks
+  const assistant = useAssistant({
+    session: session!,
+    blocks: blockManager.blocks,
+    activities: allActivities,
+    squads,
+    sessionId,
+    onAddBlock: addBlock,
+    onUpdateBlock: updateBlock,
+    onDeleteBlock: deleteBlock,
+    onMoveBlock: moveBlock,
+    hasCollision: blockManager.hasCollision,
+    copyHour: clipboard.copyHour,
+    onUpdateSession: handleSessionMetadataUpdate,
+    onSessionUpdated: useCallback(() => {
+      supabase.from("sp_sessions").select("*").eq("id", sessionId).single().then(({ data }) => {
+        if (data) { setSession(data as Session); setTheme(data.theme || ""); }
+      });
+    }, [supabase, sessionId]),
+  });
 
   const getSessionDate = () => {
     if (!session?.date) return "";

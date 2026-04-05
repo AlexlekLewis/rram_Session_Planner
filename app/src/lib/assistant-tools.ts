@@ -174,6 +174,74 @@ export const ASSISTANT_TOOLS = [
       required: [],
     },
   },
+  {
+    name: "update_session",
+    description: "Update session metadata — date, time, theme, status, squad assignments, specialist coaches. Use when the coach wants to change the session date, adjust times, update the theme, or change which squads are assigned.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "New date in YYYY-MM-DD format (e.g., '2026-04-21')" },
+        start_time: { type: "string", description: "New start time HH:MM (e.g., '17:00')" },
+        end_time: { type: "string", description: "New end time HH:MM (e.g., '19:00')" },
+        theme: { type: "string", description: "Session theme/focus (e.g., 'Power Hitting Focus')" },
+        status: { type: "string", description: "Session status", enum: ["draft", "published", "completed"] },
+        notes: { type: "string", description: "Session notes" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "create_activity",
+    description: "Create a new activity in the library with full R/P/E/G tier data. Use when the coach wants to design a new drill. Walk through each tier with the coach before creating.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Activity name" },
+        category: { type: "string", enum: ["batting", "batting_power", "pace_bowling", "spin_bowling", "wicketkeeping", "fielding", "fitness", "mental", "tactical", "warmup", "cooldown"] },
+        sub_category: { type: "string", description: "Skill focus area (e.g., 'Batting Zones', 'Footwork / Power')" },
+        description: { type: "string", description: "Brief overview of the activity" },
+        default_duration_mins: { type: "number", description: "Default duration in minutes" },
+        default_lanes: { type: "number", description: "Default number of lanes needed" },
+        regression: {
+          type: "object",
+          description: "Regression tier (simplified, underarm feeds, isolated skills)",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        progression: {
+          type: "object",
+          description: "Progression tier (side-arm/machine, added complexity)",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        elite: {
+          type: "object",
+          description: "Elite tier (match pace 120-140kph, kinetic chain, self-coaching)",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        gamify: {
+          type: "object",
+          description: "Gamify tier (competition, points, consequences)",
+          properties: {
+            description: { type: "string" },
+            scoring_rules: { type: "string" },
+            consequence: { type: "string" },
+          },
+        },
+      },
+      required: ["name", "category", "description"],
+    },
+  },
 ];
 
 /**
