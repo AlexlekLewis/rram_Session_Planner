@@ -2,11 +2,18 @@
 
 import { ChatMessage as ChatMessageType, ToolCallAction } from "@/hooks/useAssistant";
 import { cn } from "@/lib/utils";
-import { Check, AlertTriangle, Sparkles } from "lucide-react";
+import { Check, AlertTriangle, Sparkles, Paperclip, Image as ImageIcon } from "lucide-react";
 
 interface ChatMessageProps {
   message: ChatMessageType;
   onApplyActions?: (messageId: string) => void;
+}
+
+/** Format file size in human-readable form */
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 export function ChatMessage({ message, onApplyActions }: ChatMessageProps) {
@@ -28,6 +35,38 @@ export function ChatMessage({ message, onApplyActions }: ChatMessageProps) {
             : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-sm"
         )}
       >
+        {/* Attachment thumbnails */}
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {message.attachments.map((att) => (
+              <div key={att.id}>
+                {att.data && att.mediaType.startsWith("image/") ? (
+                  /* Live image with base64 data (current session) */
+                  <img
+                    src={`data:${att.mediaType};base64,${att.data}`}
+                    alt={att.filename}
+                    className="max-w-[200px] max-h-[150px] rounded-lg object-cover border border-white/20"
+                  />
+                ) : (
+                  /* Metadata-only placeholder (loaded from DB) */
+                  <div className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs",
+                    isUser ? "bg-white/10" : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600"
+                  )}>
+                    {att.mediaType.startsWith("image/") ? (
+                      <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                    ) : (
+                      <Paperclip className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                    )}
+                    <span className="truncate max-w-[120px]">{att.filename}</span>
+                    <span className="opacity-50">({formatSize(att.size)})</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Message text */}
         <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
 

@@ -15,12 +15,30 @@ function shiftDate(dateStr: string, days: number): string {
 }
 
 /**
+ * An image or PDF attachment on a chat message
+ */
+export interface Attachment {
+  /** Unique ID for this attachment */
+  id: string;
+  /** Original filename */
+  filename: string;
+  /** MIME type (image/jpeg, image/png, image/gif, image/webp, application/pdf) */
+  mediaType: string;
+  /** Base64-encoded file data (only present in current session, not persisted) */
+  data?: string;
+  /** File size in bytes */
+  size: number;
+}
+
+/**
  * Chat message in the assistant conversation
  */
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** Image/file attachments on this message */
+  attachments?: Attachment[];
   /** Tool calls returned by Claude — pending actions to preview/execute */
   toolCalls?: ToolCallAction[];
   /** Whether tool call actions have been applied */
@@ -119,7 +137,7 @@ export function useAssistant({
     const supabase = supabaseRef.current;
     const { data } = await supabase
       .from("sp_assistant_messages")
-      .select("id, role, content, tool_calls, actions_applied, created_at")
+      .select("id, role, content, tool_calls, attachments, actions_applied, created_at")
       .eq("thread_id", id)
       .order("created_at", { ascending: true });
 
@@ -129,6 +147,15 @@ export function useAssistant({
         id: m.id,
         role: m.role as "user" | "assistant",
         content: m.content,
+        attachments: m.attachments && Array.isArray(m.attachments) && m.attachments.length > 0
+          ? m.attachments.map((a: { id: string; filename: string; mediaType: string; size: number }) => ({
+              id: a.id,
+              filename: a.filename,
+              mediaType: a.mediaType,
+              size: a.size,
+              // No base64 data — it's not persisted
+            }))
+          : undefined,
         toolCalls: m.tool_calls && Array.isArray(m.tool_calls) && m.tool_calls.length > 0
           ? m.tool_calls.map((tc: { id: string; toolName: string; input: Record<string, unknown>; description: string; error?: string }) => ({
               id: tc.id,
@@ -188,11 +215,19 @@ export function useAssistant({
   /** Save a message to the DB */
   const saveMessage = useCallback(async (tId: string, msg: ChatMessage) => {
     const supabase = supabaseRef.current;
+    // Strip base64 data from attachments before persisting (too large for DB)
+    const attachmentsMeta = msg.attachments?.map(a => ({
+      id: a.id,
+      filename: a.filename,
+      mediaType: a.mediaType,
+      size: a.size,
+    })) || [];
     const { data } = await supabase.from("sp_assistant_messages").insert({
       thread_id: tId,
       role: msg.role,
       content: msg.content,
       tool_calls: msg.toolCalls || [],
+      attachments: attachmentsMeta.length > 0 ? attachmentsMeta : [],
       actions_applied: msg.actionsApplied || false,
     }).select("id").single();
     // Update the client-side message ID to match the DB UUID
@@ -630,8 +665,8 @@ export function useAssistant({
    * Send a message to the AI assistant
    */
   const sendMessage = useCallback(
-    async (userText: string) => {
-      if (!userText.trim() || isLoading) return;
+    async (userText: string, attachments?: Attachment[]) => {
+      if ((!userText.trim() && (!attachments || attachments.length === 0)) || isLoading) return;
 
       setError(null);
 
@@ -639,7 +674,8 @@ export function useAssistant({
       const userMsg: ChatMessage = {
         id: genId(),
         role: "user",
-        content: userText.trim(),
+        content: userText.trim() || (attachments?.length ? `[Attached ${attachments.length} file${attachments.length > 1 ? "s" : ""}]` : ""),
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, userMsg]);
@@ -649,20 +685,54 @@ export function useAssistant({
         // Create thread lazily on first message
         let currentThreadId = threadId;
         if (!currentThreadId) {
-          currentThreadId = await createThread(userText.trim());
+          currentThreadId = await createThread(userText.trim() || "Image attachment");
           if (currentThreadId) setThreadId(currentThreadId);
         }
 
-        // Save user message to DB
+        // Save user message to DB (attachments metadata only, no base64)
         if (currentThreadId) {
           await saveMessage(currentThreadId, userMsg);
         }
 
         // Build API messages from chat history
-        const apiMessages = [...messages, userMsg].map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
+        // For the current message, include image content blocks if attachments exist
+        const apiMessages = [...messages, userMsg].map((m) => {
+          // If this message has attachments with base64 data, send as multi-block content
+          if (m.attachments && m.attachments.some(a => a.data)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const contentBlocks: any[] = [];
+            for (const att of m.attachments) {
+              if (att.data) {
+                if (att.mediaType === "application/pdf") {
+                  contentBlocks.push({
+                    type: "document",
+                    source: {
+                      type: "base64",
+                      media_type: att.mediaType,
+                      data: att.data,
+                    },
+                  });
+                } else {
+                  contentBlocks.push({
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: att.mediaType,
+                      data: att.data,
+                    },
+                  });
+                }
+              }
+            }
+            if (m.content && m.content !== `[Attached ${m.attachments.length} file${m.attachments.length > 1 ? "s" : ""}]`) {
+              contentBlocks.push({ type: "text", text: m.content });
+            } else if (contentBlocks.length > 0) {
+              contentBlocks.push({ type: "text", text: "Please analyze this image and provide any relevant coaching insights." });
+            }
+            return { role: m.role, content: contentBlocks };
+          }
+          return { role: m.role, content: m.content };
+        });
 
         // Build system prompt with full program + session context
         const systemPrompt = buildSystemPrompt({
