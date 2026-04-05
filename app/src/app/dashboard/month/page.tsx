@@ -68,7 +68,8 @@ export default function MonthPage() {
   // Determine current phase
   useEffect(() => {
     if (phases.length > 0) {
-      const todayStr = new Date().toISOString().split("T")[0];
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       const activePhase = phases.find(
         (phase) => phase.start_date <= todayStr && todayStr <= phase.end_date
       );

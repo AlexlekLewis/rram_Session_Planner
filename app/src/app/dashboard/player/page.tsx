@@ -35,7 +35,7 @@ export default function PlayerPage() {
         const { data: sessionsData, error: sessionsError } = await supabase
           .from("sp_sessions")
           .select("*")
-          .gte("date", new Date().toISOString().split("T")[0])
+          .gte("date", (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; })())
           .order("date")
           .order("start_time");
 

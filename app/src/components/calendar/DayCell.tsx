@@ -73,7 +73,8 @@ export function DayCell({
     setDragOver(false);
     const sessionId = e.dataTransfer.getData("text/session-id");
     if (sessionId && onDropSession) {
-      const dateStr = date.toISOString().split("T")[0];
+      // BUG-010 pattern: use local date, not toISOString() which shifts in AEST
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       onDropSession(sessionId, dateStr);
     }
   };

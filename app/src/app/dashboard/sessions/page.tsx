@@ -180,7 +180,7 @@ export default function SessionsPage() {
       setTimeout(() => {
         const targetDate = new Date(dateParam);
         const weekElement = document.querySelector(
-          `[data-week-start="${targetDate.toISOString().split("T")[0]}"]`
+          `[data-week-start="${targetDate.getFullYear()}-${String(targetDate.getMonth()+1).padStart(2,"0")}-${String(targetDate.getDate()).padStart(2,"0")}"]`
         );
         if (weekElement) {
           weekElement.scrollIntoView({ behavior: "smooth", block: "start" });

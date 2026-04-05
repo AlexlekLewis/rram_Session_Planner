@@ -420,7 +420,7 @@ export function useAssistant({
               title: input.title,
               content: input.content,
               tags: input.tags || [],
-              source: `AI Coach conversation on ${new Date().toISOString().split("T")[0]}`,
+              source: `AI Coach conversation on ${(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; })()}`,
             });
             if (error) return `Failed to remember: ${error.message}`;
             return null;
