@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Player, Squad, Program, PlayerRole, BowlingStyle, BattingHand } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -137,6 +137,14 @@ export function PlayersTab({ players, setPlayers, squads, program, supabase }: P
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [profilePlayer, setProfilePlayer] = useState<Player | null>(null);
+  const newPlayerFormRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to new player form when it appears
+  useEffect(() => {
+    if (newPlayer && newPlayerFormRef.current) {
+      newPlayerFormRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [newPlayer]);
 
   // Filtered players
   const filteredPlayers = useMemo(() => {
@@ -283,9 +291,12 @@ export function PlayersTab({ players, setPlayers, squads, program, supabase }: P
     setSaving(false);
   };
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   const deletePlayer = async (id: string) => {
     const prev = [...players];
     setPlayers(players.filter((p) => p.id !== id));
+    setConfirmDeleteId(null);
 
     const { error } = await supabase.from("sp_players").delete().eq("id", id);
     if (error) {
@@ -654,6 +665,9 @@ export function PlayersTab({ players, setPlayers, squads, program, supabase }: P
                   onEdit={() => startEdit(player)}
                   onDelete={() => deletePlayer(player.id)}
                   onViewProfile={() => setProfilePlayer(player)}
+                  confirmingDelete={confirmDeleteId === player.id}
+                  onRequestDelete={() => setConfirmDeleteId(player.id)}
+                  onCancelDelete={() => setConfirmDeleteId(null)}
                 />
               )}
             </div>
@@ -661,7 +675,7 @@ export function PlayersTab({ players, setPlayers, squads, program, supabase }: P
 
           {/* New Player Form */}
           {newPlayer && (
-            <div className="border border-rr-pink/30 rounded-lg p-4 bg-pink-50/30 dark:bg-pink-900/10">
+            <div ref={newPlayerFormRef} className="border border-rr-pink/30 rounded-lg p-4 bg-pink-50/30 dark:bg-pink-900/10">
               <PlayerForm
                 form={form}
                 setForm={setForm}
@@ -698,12 +712,18 @@ function PlayerCard({
   onEdit,
   onDelete,
   onViewProfile,
+  confirmingDelete,
+  onRequestDelete,
+  onCancelDelete,
 }: {
   player: Player;
   squads: Squad[];
   onEdit: () => void;
   onDelete: () => void;
   onViewProfile: () => void;
+  confirmingDelete: boolean;
+  onRequestDelete: () => void;
+  onCancelDelete: () => void;
 }) {
   const incomplete = isProfileIncomplete(player);
 
@@ -819,15 +839,29 @@ function PlayerCard({
             Complete Profile
           </button>
         )}
-        <button onClick={onViewProfile} className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition" title="View Profile">
-          <Eye className="w-3.5 h-3.5 text-blue-400" />
-        </button>
-        <button onClick={onEdit} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition" title="Edit">
-          <Pencil className="w-3.5 h-3.5 text-gray-400" />
-        </button>
-        <button onClick={onDelete} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition" title="Delete">
-          <Trash2 className="w-3.5 h-3.5 text-red-400" />
-        </button>
+        {confirmingDelete ? (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-red-500 font-medium mr-1">Delete?</span>
+            <button onClick={onDelete} className="text-[10px] font-semibold text-white bg-red-500 hover:bg-red-600 px-2 py-1 rounded transition">
+              Yes
+            </button>
+            <button onClick={onCancelDelete} className="text-[10px] font-semibold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded transition">
+              No
+            </button>
+          </div>
+        ) : (
+          <>
+            <button onClick={onViewProfile} className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition" title="View Profile">
+              <Eye className="w-3.5 h-3.5 text-blue-400" />
+            </button>
+            <button onClick={onEdit} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition" title="Edit">
+              <Pencil className="w-3.5 h-3.5 text-gray-400" />
+            </button>
+            <button onClick={onRequestDelete} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition" title="Delete">
+              <Trash2 className="w-3.5 h-3.5 text-red-400" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
