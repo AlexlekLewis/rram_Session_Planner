@@ -22,6 +22,7 @@ import { useClipboard } from "@/hooks/useClipboard";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { useUserRole } from "@/hooks/useUserRole";
 import { ReadOnlyGrid } from "@/components/session-grid/ReadOnlyGrid";
+import { useAssistantSessionContext } from "@/lib/assistant-session-context";
 
 export default function SessionPage() {
   const params = useParams();
@@ -292,6 +293,26 @@ export default function SessionPage() {
     setSession((prev) => prev ? { ...prev, ...updates } : prev);
     if (updates.theme !== undefined) setTheme(updates.theme || "");
   }, [supabase, sessionId]);
+
+  // Register this session with the global AI Coach so it knows which session we're viewing
+  const { registerSession, clearSession } = useAssistantSessionContext();
+  useEffect(() => {
+    if (session && canEdit) {
+      registerSession({
+        sessionId,
+        session,
+        blocks: blockManager.blocks,
+        onAddBlock: addBlock,
+        onUpdateBlock: updateBlock,
+        onDeleteBlock: deleteBlock,
+        onMoveBlock: moveBlock,
+        hasCollision: blockManager.hasCollision,
+        copyHour: clipboard.copyHour,
+        onUpdateSession: handleSessionMetadataUpdate,
+      });
+    }
+    return () => clearSession();
+  }, [session, sessionId, canEdit, blockManager.blocks, addBlock, updateBlock, deleteBlock, moveBlock, blockManager.hasCollision, clipboard.copyHour, handleSessionMetadataUpdate, registerSession, clearSession]);
 
   const getSessionDate = () => {
     if (!session?.date) return "";

@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { useUserRole } from "@/hooks/useUserRole";
 import { UserRole, Program, Phase, Session, Activity, Squad } from "@/lib/types";
 import { AssistantPanel } from "@/components/ai-assistant/AssistantPanel";
+import { AssistantSessionProvider, useAssistantSessionContext } from "@/lib/assistant-session-context";
 import { useAssistant } from "@/hooks/useAssistant";
 import { Sparkles } from "lucide-react";
 
@@ -71,20 +72,7 @@ export default function DashboardLayout({
 
   useEffect(() => { fetchGlobalData(); }, [fetchGlobalData]);
 
-  // Global AI Coach — program-level access
   const canUseAssistant = role === "head_coach" || role === "assistant_coach";
-  const assistant = useAssistant({
-    activities: allActivities,
-    squads: globalSquads,
-    program,
-    phases,
-    allSessions,
-    onSessionUpdated: useCallback(() => {
-      fetchGlobalData();
-      // Force child pages to re-render with fresh data
-      router.refresh();
-    }, [fetchGlobalData, router]),
-  });
 
   // Filter nav items by role
   const visibleNavItems = useMemo(() => {
@@ -100,6 +88,7 @@ export default function DashboardLayout({
   }
 
   return (
+    <AssistantSessionProvider>
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Top Navigation Bar */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -176,20 +165,22 @@ export default function DashboardLayout({
       {/* Main Content */}
       <main className="flex-1">{children}</main>
 
-      {/* Global AI Coach Panel — available on every page */}
+      {/* Global AI Coach — reads active session from context */}
       {canUseAssistant && (
-        <AssistantPanel
+        <GlobalAssistant
           isOpen={assistantOpen}
           onClose={() => setAssistantOpen(false)}
-          messages={assistant.messages}
-          isLoading={assistant.isLoading}
-          error={assistant.error}
-          onSendMessage={assistant.sendMessage}
-          onApplyActions={assistant.applyActions}
-          onClearChat={assistant.clearChat}
+          allActivities={allActivities}
+          globalSquads={globalSquads}
+          program={program}
+          phases={phases}
+          allSessions={allSessions}
+          fetchGlobalData={fetchGlobalData}
+          router={router}
         />
       )}
     </div>
+    </AssistantSessionProvider>
   );
 }
 
@@ -235,5 +226,70 @@ function SettingsIcon({ className }: { className?: string }) {
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
+  );
+}
+
+// ============================================================================
+// Global AI Coach — reads active session from context
+// ============================================================================
+function GlobalAssistant({
+  isOpen,
+  onClose,
+  allActivities,
+  globalSquads,
+  program,
+  phases,
+  allSessions,
+  fetchGlobalData,
+  router,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  allActivities: Activity[];
+  globalSquads: Squad[];
+  program: Program | null;
+  phases: Phase[];
+  allSessions: Session[];
+  fetchGlobalData: () => Promise<void>;
+  router: ReturnType<typeof useRouter>;
+}) {
+  // Read active session context from the session page (if viewing one)
+  const { activeSession } = useAssistantSessionContext();
+
+  const assistant = useAssistant({
+    // Session-level context (available when viewing a session)
+    session: activeSession?.session || null,
+    blocks: activeSession?.blocks,
+    sessionId: activeSession?.sessionId,
+    onAddBlock: activeSession?.onAddBlock,
+    onUpdateBlock: activeSession?.onUpdateBlock,
+    onDeleteBlock: activeSession?.onDeleteBlock,
+    onMoveBlock: activeSession?.onMoveBlock,
+    hasCollision: activeSession?.hasCollision,
+    copyHour: activeSession?.copyHour,
+    onUpdateSession: activeSession?.onUpdateSession,
+    // Program-level context (always available)
+    activities: allActivities,
+    squads: globalSquads,
+    program,
+    phases,
+    allSessions,
+    onSessionUpdated: useCallback(() => {
+      fetchGlobalData();
+      router.refresh();
+    }, [fetchGlobalData, router]),
+  });
+
+  return (
+    <AssistantPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      messages={assistant.messages}
+      isLoading={assistant.isLoading}
+      error={assistant.error}
+      onSendMessage={assistant.sendMessage}
+      onApplyActions={assistant.applyActions}
+      onClearChat={assistant.clearChat}
+    />
   );
 }
