@@ -149,12 +149,18 @@ export function useAutoSave(
     }
   }, [blocks, sessionId, isDirty, onBlocksSaved])
 
-  // Initialize last-saved snapshot when blocks first load
+  // Initialize last-saved snapshot ONLY on first load (when isDirty is false).
+  // BUG-011 ROOT CAUSE FIX: The previous version initialized the snapshot whenever
+  // blocks.length > 0 and size === 0, which meant the first locally-added block
+  // got included in the snapshot as "already saved" — causing the diff to skip it.
+  // Now we only initialize when isDirty is false (meaning blocks came from the DB).
+  const snapshotInitialized = useRef(false)
   useEffect(() => {
-    if (blocks.length > 0 && lastSavedBlocksRef.current.size === 0) {
+    if (!snapshotInitialized.current && blocks.length > 0 && !isDirty) {
       lastSavedBlocksRef.current = new Map(blocks.map((b) => [b.id, { ...b }]))
+      snapshotInitialized.current = true
     }
-  }, [blocks])
+  }, [blocks, isDirty])
 
   // Debounced save trigger
   useEffect(() => {
