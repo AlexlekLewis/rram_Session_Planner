@@ -15,6 +15,7 @@ interface UseSessionBlocksReturn {
   selectedBlockIds: string[]
   setSelectedBlockIds: (ids: string[]) => void
   isDirty: boolean
+  markDirty: () => void
 }
 
 export function useSessionBlocks(initialBlocks: SessionBlock[] = []): UseSessionBlocksReturn {
@@ -96,6 +97,11 @@ export function useSessionBlocks(initialBlocks: SessionBlock[] = []): UseSession
     [updateBlock]
   )
 
+  // Mark blocks as dirty (e.g. after undo/redo restores state)
+  const markDirty = useCallback(() => {
+    setIsDirty(true)
+  }, [])
+
   // Resize a block (change end lane and time)
   const resizeBlock = useCallback(
     (id: string, newLaneEnd: number, newTimeEnd: string) => {
@@ -119,5 +125,6 @@ export function useSessionBlocks(initialBlocks: SessionBlock[] = []): UseSession
     selectedBlockIds,
     setSelectedBlockIds,
     isDirty,
+    markDirty,
   }
 }

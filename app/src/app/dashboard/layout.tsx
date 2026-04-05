@@ -253,8 +253,8 @@ function GlobalAssistant({
   fetchGlobalData: () => Promise<void>;
   router: ReturnType<typeof useRouter>;
 }) {
-  // Read active session context from the session page (if viewing one)
-  const { activeSession } = useAssistantSessionContext();
+  // Read active session context via ref-based getter (no re-render on session data changes)
+  const { getActiveSession } = useAssistantSessionContext();
 
   const onSessionUpdated = useCallback(() => {
     fetchGlobalData();
@@ -262,17 +262,8 @@ function GlobalAssistant({
   }, [fetchGlobalData, router]);
 
   const assistant = useAssistant({
-    // Session-level context (available when viewing a session)
-    session: activeSession?.session || null,
-    blocks: activeSession?.blocks,
-    sessionId: activeSession?.sessionId,
-    onAddBlock: activeSession?.onAddBlock,
-    onUpdateBlock: activeSession?.onUpdateBlock,
-    onDeleteBlock: activeSession?.onDeleteBlock,
-    onMoveBlock: activeSession?.onMoveBlock,
-    hasCollision: activeSession?.hasCollision,
-    copyHour: activeSession?.copyHour,
-    onUpdateSession: activeSession?.onUpdateSession,
+    // Session-level context read on-demand via getActiveSession() (ref-based, no re-render loops)
+    getActiveSession,
     // Program-level context (always available)
     activities: allActivities,
     squads: globalSquads,

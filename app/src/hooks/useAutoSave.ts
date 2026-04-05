@@ -31,6 +31,8 @@ export function useAutoSave(
   const lastSavedBlocksRef = useRef<Map<string, SessionBlock>>(new Map())
   const supabaseRef = useRef(createClient())
   const isSavingRef = useRef(false)
+  const blocksRef = useRef<SessionBlock[]>(blocks)
+  blocksRef.current = blocks
 
   const performSave = useCallback(async () => {
     if (!isDirty || isSavingRef.current) return
@@ -41,7 +43,10 @@ export function useAutoSave(
     try {
       const supabase = supabaseRef.current
       const lastSaved = lastSavedBlocksRef.current
-      const currentMap = new Map(blocks.map((b) => [b.id, b]))
+      // Use ref to always read the latest blocks, not the stale closure value.
+      // This is critical for the re-save path triggered from the finally block.
+      const currentBlocks = blocksRef.current
+      const currentMap = new Map(currentBlocks.map((b) => [b.id, b]))
 
       // Partition into new, modified, and deleted
       const toUpsert: SessionBlock[] = []
@@ -52,7 +57,7 @@ export function useAutoSave(
       // This catches changes made via setBlocks() that bypass updateBlock().
       // PATTERN: JSON.stringify comparison — standard deep-equal for serializable objects.
       // With max ~50 blocks per session, this is negligible performance cost.
-      for (const block of blocks) {
+      for (const block of currentBlocks) {
         const prev = lastSaved.get(block.id)
         if (!prev) {
           // New block — not in last-saved snapshot
@@ -138,16 +143,42 @@ export function useAutoSave(
         onBlocksSaved(savedIds)
       }
 
-      // Update last-saved snapshot
-      lastSavedBlocksRef.current = new Map(blocks.map((b) => [b.id, { ...b }]))
+      // Update last-saved snapshot — use currentBlocks (from ref), not closure
+      lastSavedBlocksRef.current = new Map(currentBlocks.map((b) => [b.id, { ...b }]))
       setSaveStatus("saved")
     } catch (error) {
       console.error("Error saving blocks:", error)
       setSaveStatus("error")
     } finally {
       isSavingRef.current = false
+
+      // DATA LOSS FIX: If blocks changed while we were saving, the debounce
+      // effect already fired and was cleaned up, so no new timer was set.
+      // Re-check current blocks (via ref) against last-saved snapshot and
+      // schedule another save if they differ.
+      const currentBlocks = blocksRef.current
+      const lastSaved = lastSavedBlocksRef.current
+      const hasUnsavedChanges =
+        currentBlocks.length !== lastSaved.size ||
+        currentBlocks.some((b) => {
+          const prev = lastSaved.get(b.id)
+          return !prev || JSON.stringify(prev) !== JSON.stringify(b)
+        }) ||
+        // Check for deletions: blocks in lastSaved not in current
+        Array.from(lastSaved.keys()).some(
+          (id) => !currentBlocks.find((b) => b.id === id)
+        )
+
+      if (hasUnsavedChanges) {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+        }
+        debounceTimerRef.current = setTimeout(() => {
+          performSave()
+        }, SAVE_DEBOUNCE_MS)
+      }
     }
-  }, [blocks, sessionId, isDirty, onBlocksSaved])
+  }, [sessionId, isDirty, onBlocksSaved])
 
   // Initialize last-saved snapshot ONLY on first load (when isDirty is false).
   // BUG-011 ROOT CAUSE FIX: The previous version initialized the snapshot whenever

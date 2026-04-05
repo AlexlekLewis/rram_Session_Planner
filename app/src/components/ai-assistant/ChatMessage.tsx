@@ -3,6 +3,7 @@
 import { ChatMessage as ChatMessageType, ToolCallAction } from "@/hooks/useAssistant";
 import { cn } from "@/lib/utils";
 import { Check, AlertTriangle, Sparkles, Paperclip, Image as ImageIcon } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -68,7 +69,13 @@ export function ChatMessage({ message, onApplyActions }: ChatMessageProps) {
         )}
 
         {/* Message text */}
-        <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-headings:text-gray-900 dark:prose-headings:text-gray-100">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          </div>
+        )}
 
         {/* Tool call actions preview */}
         {message.toolCalls && message.toolCalls.length > 0 && (

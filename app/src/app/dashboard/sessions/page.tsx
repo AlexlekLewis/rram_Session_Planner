@@ -227,9 +227,7 @@ function SessionsContent() {
             {weeks.map((week) => (
               <div
                 key={week.weekNumber}
-                data-week-start={week.weekStart
-                  .toISOString()
-                  .split("T")[0]}
+                data-week-start={`${week.weekStart.getFullYear()}-${String(week.weekStart.getMonth()+1).padStart(2,"0")}-${String(week.weekStart.getDate()).padStart(2,"0")}`}
               >
                 <WeekGroup
                   weekNumber={week.weekNumber}

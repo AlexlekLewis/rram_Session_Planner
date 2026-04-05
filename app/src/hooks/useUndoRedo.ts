@@ -6,8 +6,8 @@ import { UNDO_STACK_SIZE } from "@/lib/constants"
 
 interface UseUndoRedoReturn {
   pushState: (blocks: SessionBlock[]) => void
-  undo: () => SessionBlock[] | null
-  redo: () => SessionBlock[] | null
+  undo: (currentBlocks: SessionBlock[]) => SessionBlock[] | null
+  redo: (currentBlocks: SessionBlock[]) => SessionBlock[] | null
   canUndo: boolean
   canRedo: boolean
 }
@@ -57,8 +57,8 @@ export function useUndoRedo(): UseUndoRedoReturn {
     [triggerRender]
   )
 
-  // Undo: pop from undo stack, return it. Push it to redo stack.
-  const undo = useCallback((): SessionBlock[] | null => {
+  // Undo: pop from undo stack, return it. Push CURRENT state to redo stack.
+  const undo = useCallback((currentBlocks: SessionBlock[]): SessionBlock[] | null => {
     const undoStack = undoStackRef.current
     if (undoStack.length === 0) return null
 
@@ -66,7 +66,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
 
     // Update stacks synchronously via refs
     undoStackRef.current = rest
-    redoStackRef.current = [previous, ...redoStackRef.current]
+    redoStackRef.current = [deepClone(currentBlocks), ...redoStackRef.current]
 
     triggerRender()
 
@@ -74,8 +74,8 @@ export function useUndoRedo(): UseUndoRedoReturn {
     return deepClone(previous)
   }, [triggerRender])
 
-  // Redo: pop from redo stack, return it. Push it to undo stack.
-  const redo = useCallback((): SessionBlock[] | null => {
+  // Redo: pop from redo stack, return it. Push CURRENT state to undo stack.
+  const redo = useCallback((currentBlocks: SessionBlock[]): SessionBlock[] | null => {
     const redoStack = redoStackRef.current
     if (redoStack.length === 0) return null
 
@@ -83,7 +83,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
 
     // Update stacks synchronously via refs
     redoStackRef.current = rest
-    undoStackRef.current = [next, ...undoStackRef.current]
+    undoStackRef.current = [deepClone(currentBlocks), ...undoStackRef.current]
 
     triggerRender()
 

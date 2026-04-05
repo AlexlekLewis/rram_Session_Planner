@@ -132,14 +132,20 @@ export default function SessionPage() {
       // Ctrl+Z — Undo
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
-        const prev = undoRedo.undo();
-        if (prev) blockManager.setBlocks(prev);
+        const prev = undoRedo.undo(blockManager.blocks);
+        if (prev) {
+          blockManager.setBlocks(prev);
+          blockManager.markDirty();
+        }
       }
       // Ctrl+Shift+Z — Redo
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
         e.preventDefault();
-        const next = undoRedo.redo();
-        if (next) blockManager.setBlocks(next);
+        const next = undoRedo.redo(blockManager.blocks);
+        if (next) {
+          blockManager.setBlocks(next);
+          blockManager.markDirty();
+        }
       }
       // Ctrl+C — Copy selected blocks
       if ((e.ctrlKey || e.metaKey) && e.key === "c" && !isInput && blockManager.selectedBlockIds.length > 0) {
@@ -294,7 +300,9 @@ export default function SessionPage() {
     if (updates.theme !== undefined) setTheme(updates.theme || "");
   }, [supabase, sessionId]);
 
-  // Register this session with the global AI Coach so it knows which session we're viewing
+  // Register this session with the global AI Coach so it knows which session we're viewing.
+  // Uses a ref-based context (no state updates) to avoid infinite re-render loops.
+  // We update the ref on every render so the AI Coach always reads the latest blocks/callbacks.
   const { registerSession, clearSession } = useAssistantSessionContext();
   useEffect(() => {
     if (session && canEdit) {
@@ -312,6 +320,8 @@ export default function SessionPage() {
       });
     }
     return () => clearSession();
+    // Safe to include all deps — registerSession writes to a ref (not state),
+    // so it cannot trigger re-renders or cause an infinite loop.
   }, [session, sessionId, canEdit, blockManager.blocks, addBlock, updateBlock, deleteBlock, moveBlock, blockManager.hasCollision, clipboard.copyHour, handleSessionMetadataUpdate, registerSession, clearSession]);
 
   const getSessionDate = () => {

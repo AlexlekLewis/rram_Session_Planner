@@ -60,22 +60,28 @@ export interface ToolCallAction {
   error?: string;
 }
 
+/** Live session data provided via ref-based context (read on-demand, not reactive) */
+interface ActiveSessionData {
+  sessionId: string;
+  session: Session;
+  blocks: SessionBlock[];
+  onAddBlock: (block: Omit<SessionBlock, "id" | "created_at" | "updated_at">) => SessionBlock;
+  onUpdateBlock: (id: string, updates: Partial<SessionBlock>) => void;
+  onDeleteBlock: (id: string) => void;
+  onMoveBlock: (id: string, laneStart: number, laneEnd: number, timeStart: string, timeEnd: string) => void;
+  hasCollision: (position: { laneStart: number; laneEnd: number; timeStart: string; timeEnd: string }, excludeId?: string) => boolean;
+  copyHour: (allBlocks: SessionBlock[], sourceStart: string, sourceEnd: string, targetStart: string) => Omit<SessionBlock, "id" | "created_at" | "updated_at">[];
+  onUpdateSession: (updates: Partial<Session>) => Promise<void>;
+}
+
 interface UseAssistantProps {
-  session?: Session | null;
-  blocks?: SessionBlock[];
+  /** Getter for live session data (ref-based, avoids re-render loops) */
+  getActiveSession: () => ActiveSessionData | null;
   activities: Activity[];
   squads: Squad[];
-  sessionId?: string;
   program?: Program | null;
   phases?: Phase[];
   allSessions?: Session[];
-  onAddBlock?: (block: Omit<SessionBlock, "id" | "created_at" | "updated_at">) => SessionBlock;
-  onUpdateBlock?: (id: string, updates: Partial<SessionBlock>) => void;
-  onDeleteBlock?: (id: string) => void;
-  onMoveBlock?: (id: string, laneStart: number, laneEnd: number, timeStart: string, timeEnd: string) => void;
-  hasCollision?: (position: { laneStart: number; laneEnd: number; timeStart: string; timeEnd: string }, excludeId?: string) => boolean;
-  copyHour?: (allBlocks: SessionBlock[], sourceStart: string, sourceEnd: string, targetStart: string) => Omit<SessionBlock, "id" | "created_at" | "updated_at">[];
-  onUpdateSession?: (updates: Partial<Session>) => Promise<void>;
   onSessionUpdated?: () => void;
 }
 
@@ -87,23 +93,13 @@ export interface ThreadSummary {
   updated_at: string;
 }
 
-// Module-level flags survive error-boundary re-mounts (refs don't)
-let _initialLoadDone = false;
+// Module-level flag for user-initiated new chat (survives re-mounts intentionally)
 let _userStartedNewChat = false;
 
 export function useAssistant({
-  session,
-  blocks,
+  getActiveSession,
   activities,
   squads,
-  sessionId,
-  onAddBlock,
-  onUpdateBlock,
-  onDeleteBlock,
-  onMoveBlock,
-  hasCollision,
-  copyHour,
-  onUpdateSession,
   onSessionUpdated,
   program,
   phases = [],
@@ -117,6 +113,8 @@ export function useAssistant({
   const [threadId, setThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const supabaseRef = useRef(createClient());
+  const initialLoadDoneRef = useRef(false);
+  const threadCreationPromiseRef = useRef<Promise<string | null> | null>(null);
 
   // Load coaching knowledge base on mount
   useEffect(() => {
@@ -188,8 +186,8 @@ export function useAssistant({
 
   // Load the most recent thread on mount (resume last conversation)
   useEffect(() => {
-    if (threads.length > 0 && !_initialLoadDone && !_userStartedNewChat) {
-      _initialLoadDone = true;
+    if (threads.length > 0 && !initialLoadDoneRef.current && !_userStartedNewChat) {
+      initialLoadDoneRef.current = true;
       loadThread(threads[0].id);
     }
   }, [threads, loadThread]);
@@ -197,6 +195,7 @@ export function useAssistant({
   /** Create a new thread in the DB */
   const createThread = useCallback(async (firstMessage: string): Promise<string | null> => {
     const supabase = supabaseRef.current;
+    const active = getActiveSession();
     const { data: userData } = await supabase.auth.getUser();
     const title = firstMessage.length > 50 ? firstMessage.slice(0, 50) + "..." : firstMessage;
     const { data, error } = await supabase
@@ -204,13 +203,13 @@ export function useAssistant({
       .insert({
         user_id: userData.user?.id,
         title,
-        session_id: sessionId || null,
+        session_id: active?.sessionId || null,
       })
       .select("id")
       .single();
     if (error || !data) return null;
     return data.id;
-  }, [sessionId]);
+  }, [getActiveSession]);
 
   /** Save a message to the DB */
   const saveMessage = useCallback(async (tId: string, msg: ChatMessage) => {
@@ -304,11 +303,25 @@ export function useAssistant({
   };
 
   /**
-   * Execute a single tool call action against the session grid
+   * Execute a single tool call action against the session grid.
+   * Reads live session data via getActiveSession() so it always has the latest blocks/callbacks.
    */
   const executeAction = useCallback(
     async (action: ToolCallAction): Promise<string | null> => {
       const { toolName, input } = action;
+      // Read live session data from the ref-based context
+      const active = getActiveSession();
+      const sessionId = active?.sessionId;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const session = active?.session;
+      const blocks = active?.blocks;
+      const onAddBlock = active?.onAddBlock;
+      const onUpdateBlock = active?.onUpdateBlock;
+      const onDeleteBlock = active?.onDeleteBlock;
+      const onMoveBlock = active?.onMoveBlock;
+      const hasCollision = active?.hasCollision;
+      const copyHour = active?.copyHour;
+      const onUpdateSession = active?.onUpdateSession;
 
       // Validate first
       const validationError = validateToolCall(toolName, input);
@@ -627,7 +640,7 @@ export function useAssistant({
           return `Unknown action: ${toolName}`;
       }
     },
-    [blocks, sessionId, activities, squads, program, phases, allSessions, onAddBlock, onUpdateBlock, onDeleteBlock, onMoveBlock, hasCollision, copyHour, onUpdateSession, onSessionUpdated]
+    [getActiveSession, activities, squads, program, phases, allSessions, onSessionUpdated]
   );
 
   /**
@@ -682,11 +695,19 @@ export function useAssistant({
       setIsLoading(true);
 
       try {
-        // Create thread lazily on first message
+        // Create thread lazily on first message (with race-condition guard)
         let currentThreadId = threadId;
         if (!currentThreadId) {
-          currentThreadId = await createThread(userText.trim() || "Image attachment");
-          if (currentThreadId) setThreadId(currentThreadId);
+          if (threadCreationPromiseRef.current) {
+            // Another sendMessage call is already creating a thread — wait for it
+            currentThreadId = await threadCreationPromiseRef.current;
+          } else {
+            const promise = createThread(userText.trim() || "Image attachment");
+            threadCreationPromiseRef.current = promise;
+            currentThreadId = await promise;
+            threadCreationPromiseRef.current = null;
+            if (currentThreadId) setThreadId(currentThreadId);
+          }
         }
 
         // Save user message to DB (attachments metadata only, no base64)
@@ -734,10 +755,13 @@ export function useAssistant({
           return { role: m.role, content: m.content };
         });
 
+        // Read live session data from the ref-based context at send time
+        const activeAtSend = getActiveSession();
+
         // Build system prompt with full program + session context
         const systemPrompt = buildSystemPrompt({
-          session: session || undefined,
-          blocks,
+          session: activeAtSend?.session || undefined,
+          blocks: activeAtSend?.blocks,
           activities,
           squads,
           program: program || undefined,
@@ -820,7 +844,7 @@ export function useAssistant({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [messages, isLoading, session, blocks, activities, squads, threadId, createThread, saveMessage, loadThreads, knowledge, program, phases, allSessions]
+    [messages, isLoading, getActiveSession, activities, squads, threadId, createThread, saveMessage, loadThreads, knowledge, program, phases, allSessions]
   );
 
   const clearChat = useCallback(() => {
