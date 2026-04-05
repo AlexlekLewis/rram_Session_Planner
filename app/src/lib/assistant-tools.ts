@@ -365,7 +365,8 @@ export function validateToolCall(
   if (toolName === "add_block") {
     if (!timeRegex.test(input.time_start)) return `Invalid time_start: ${input.time_start}. Must be HH:MM format.`;
     if (!timeRegex.test(input.time_end)) return `Invalid time_end: ${input.time_end}. Must be HH:MM format.`;
-    if (input.time_end <= input.time_start) return `time_end (${input.time_end}) must be after time_start (${input.time_start})`;
+    const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    if (toMins(input.time_end) <= toMins(input.time_start)) return `time_end (${input.time_end}) must be after time_start (${input.time_start})`;
     if (input.lane_start < 1 || input.lane_start > 8) return `lane_start must be 1-8, got ${input.lane_start}`;
     if (input.lane_end < input.lane_start || input.lane_end > 8) return `lane_end must be >= lane_start and <= 8, got ${input.lane_end}`;
 

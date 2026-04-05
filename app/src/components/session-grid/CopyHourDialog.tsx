@@ -66,7 +66,7 @@ export function CopyHourDialog({
     (targetEndMins > sourceStartMins && targetEndMins <= sourceEndMins);
 
   const targetFitsInSession = targetEndMins <= timeToMinutes(sessionEndTime);
-  const isValid = !overlap && targetFitsInSession && sourceStart < sourceEnd;
+  const isValid = !overlap && targetFitsInSession && sourceStartMins < sourceEndMins;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

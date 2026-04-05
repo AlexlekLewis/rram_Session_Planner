@@ -1,6 +1,7 @@
 "use client";
 import { Session, SessionBlock, Squad } from "@/lib/types";
 import { useState } from "react";
+import { toast } from "sonner";
 
 interface ExportPdfButtonProps {
   session: Session;
@@ -13,11 +14,14 @@ export function ExportPdfButton({ session, blocks, squads }: ExportPdfButtonProp
 
   const handleExport = async () => {
     setIsExporting(true);
+    toast.loading("Exporting PDF...", { id: "pdf-export" });
     try {
       const { exportSessionPdf } = await import("@/lib/exportPdf");
       await exportSessionPdf(session, blocks, squads);
+      toast.success("PDF downloaded", { id: "pdf-export" });
     } catch (err) {
       console.error("Error exporting PDF:", err);
+      toast.error("PDF export failed", { id: "pdf-export" });
     } finally {
       setIsExporting(false);
     }

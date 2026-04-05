@@ -222,7 +222,7 @@ export function useAssistant({
       mediaType: a.mediaType,
       size: a.size,
     })) || [];
-    const { data } = await supabase.from("sp_assistant_messages").insert({
+    const { data, error: msgInsertError } = await supabase.from("sp_assistant_messages").insert({
       thread_id: tId,
       role: msg.role,
       content: msg.content,
@@ -230,6 +230,7 @@ export function useAssistant({
       attachments: attachmentsMeta.length > 0 ? attachmentsMeta : [],
       actions_applied: msg.actionsApplied || false,
     }).select("id").single();
+    if (msgInsertError) console.error("Failed to save assistant message:", msgInsertError.message);
     // Update the client-side message ID to match the DB UUID
     if (data) {
       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, id: data.id } : m));
@@ -401,8 +402,11 @@ export function useAssistant({
         }
 
         case "clear_time_range": {
+          const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+          const rangeStartMins = toMins(input.time_start);
+          const rangeEndMins = toMins(input.time_end);
           const toDelete = (blocks || []).filter(
-            (b) => b.time_start >= input.time_start && b.time_start < input.time_end
+            (b) => { const bm = toMins(b.time_start); return bm >= rangeStartMins && bm < rangeEndMins; }
           );
           if (!onDeleteBlock) return "Navigate to a session first.";
           toDelete.forEach((b) => onDeleteBlock(b.id));

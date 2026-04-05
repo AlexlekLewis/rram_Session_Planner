@@ -204,7 +204,9 @@ export function BlockContextMenu({
         {/* Delete Block - Red text */}
         <button
           onClick={() => {
-            onDelete(block.id);
+            if (window.confirm('Delete this block? This can be undone with \u2318Z.')) {
+              onDelete(block.id);
+            }
             onClose();
           }}
           className={cn(

@@ -17,8 +17,9 @@ export function useClipboard() {
     if (blocks.length === 0) return;
     // Find top-left origin of selection
     const minLane = Math.min(...blocks.map((b) => b.lane_start));
+    const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
     const minTime = blocks.reduce(
-      (min, b) => (b.time_start < min ? b.time_start : min),
+      (min, b) => (toMins(b.time_start) < toMins(min) ? b.time_start : min),
       blocks[0].time_start
     );
     setClipboard({
@@ -86,9 +87,13 @@ export function useClipboard() {
       SessionBlock,
       "id" | "created_at" | "updated_at"
     >[] => {
-      // Find blocks that overlap with source range
+      // Find blocks that overlap with source range (use numeric minutes to avoid string comparison bugs)
+      const toMinutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      const sourceMins = toMinutes(sourceStart);
+      const sourceEndMins = toMinutes(sourceEnd);
       const sourceBlocks = allBlocks.filter((b) => {
-        return b.time_start >= sourceStart && b.time_start < sourceEnd;
+        const blockMins = toMinutes(b.time_start);
+        return blockMins >= sourceMins && blockMins < sourceEndMins;
       });
 
       const [ssH, ssM] = sourceStart.split(":").map(Number);

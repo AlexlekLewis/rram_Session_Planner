@@ -662,8 +662,10 @@ export async function executeAdminAction(
         const orphanedNull = data || [];
 
         // Also check for blocks referencing deleted sessions
-        const { data: allBlocks } = await supabase.from("sp_session_blocks").select("id, session_id, name");
-        const { data: allSessions } = await supabase.from("sp_sessions").select("id");
+        const { data: allBlocks, error: allBlocksError } = await supabase.from("sp_session_blocks").select("id, session_id, name");
+        if (allBlocksError) throw new Error(`Failed to fetch blocks: ${allBlocksError.message}`);
+        const { data: allSessions, error: allSessionsError } = await supabase.from("sp_sessions").select("id");
+        if (allSessionsError) throw new Error(`Failed to fetch sessions: ${allSessionsError.message}`);
         const sessionIds = new Set((allSessions || []).map((s: { id: string }) => s.id));
         const orphanedRef = (allBlocks || []).filter((b: { session_id: string | null }) =>
           b.session_id && !sessionIds.has(b.session_id)
@@ -674,15 +676,18 @@ export async function executeAdminAction(
       }
 
       if (checks.includes("sessions_no_blocks")) {
-        const { data: sessions } = await supabase.from("sp_sessions").select("id, date, theme");
-        const { data: blocks } = await supabase.from("sp_session_blocks").select("session_id");
+        const { data: sessions, error: sessionsError } = await supabase.from("sp_sessions").select("id, date, theme");
+        if (sessionsError) throw new Error(`Failed to fetch sessions: ${sessionsError.message}`);
+        const { data: blocks, error: blocksError } = await supabase.from("sp_session_blocks").select("session_id");
+        if (blocksError) throw new Error(`Failed to fetch blocks: ${blocksError.message}`);
         const sessionsWithBlocks = new Set((blocks || []).map((b: { session_id: string }) => b.session_id));
         const empty = (sessions || []).filter((s: { id: string }) => !sessionsWithBlocks.has(s.id));
         if (empty.length > 0) issues.push(`EMPTY SESSIONS: ${empty.length} sessions have no blocks assigned`);
       }
 
       if (checks.includes("duplicate_players")) {
-        const { data: players } = await supabase.from("sp_players").select("first_name, last_name");
+        const { data: players, error: playersError } = await supabase.from("sp_players").select("first_name, last_name");
+        if (playersError) throw new Error(`Failed to fetch players: ${playersError.message}`);
         const names = (players || []).map((p: { first_name: string; last_name: string }) => `${p.first_name} ${p.last_name}`.toLowerCase());
         const counts: Record<string, number> = {};
         names.forEach((n: string) => { counts[n] = (counts[n] || 0) + 1; });
@@ -691,7 +696,8 @@ export async function executeAdminAction(
       }
 
       if (checks.includes("overlapping_blocks")) {
-        const { data: blocks } = await supabase.from("sp_session_blocks").select("id, session_id, lane_start, lane_end, time_start, time_end, name");
+        const { data: blocks, error: blocksErr } = await supabase.from("sp_session_blocks").select("id, session_id, lane_start, lane_end, time_start, time_end, name");
+        if (blocksErr) throw new Error(`Failed to fetch blocks: ${blocksErr.message}`);
         const bySession: Record<string, typeof blocks> = {};
         (blocks || []).forEach((b: { session_id: string }) => {
           if (!bySession[b.session_id]) bySession[b.session_id] = [];
@@ -705,7 +711,8 @@ export async function executeAdminAction(
               const a = sessionBlocks[i];
               const b = sessionBlocks[j];
               const lanesOverlap = a.lane_start <= b.lane_end && b.lane_start <= a.lane_end;
-              const timesOverlap = a.time_start < b.time_end && b.time_start < a.time_end;
+              const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+              const timesOverlap = toMins(a.time_start) < toMins(b.time_end) && toMins(b.time_start) < toMins(a.time_end);
               if (lanesOverlap && timesOverlap) overlapCount++;
             }
           }
@@ -787,7 +794,8 @@ export async function executeAdminAction(
       // Find the player
       let playerId = input.player_id;
       if (!playerId && input.player_name) {
-        const { data } = await supabase.from("sp_players").select("id, first_name, last_name, role");
+        const { data, error: playersErr } = await supabase.from("sp_players").select("id, first_name, last_name, role");
+        if (playersErr) return `Failed to query players: ${playersErr.message}`;
         const search = input.player_name.toLowerCase();
         const matches = (data || []).filter((p: { first_name: string; last_name: string }) =>
           `${p.first_name} ${p.last_name}`.toLowerCase().includes(search)
@@ -829,7 +837,8 @@ export async function executeAdminAction(
     case "admin_update_venue": {
       let venueId = input.venue_id;
       if (!venueId && input.venue_name) {
-        const { data } = await supabase.from("sp_venues").select("id, name");
+        const { data, error: venuesErr } = await supabase.from("sp_venues").select("id, name");
+        if (venuesErr) return `Failed to query venues: ${venuesErr.message}`;
         const search = input.venue_name.toLowerCase();
         const matches = (data || []).filter((v: { name: string }) => v.name.toLowerCase().includes(search));
         if (matches.length === 0) return `No venue found matching "${input.venue_name}"`;
@@ -895,8 +904,10 @@ export async function executeAdminAction(
 
     case "admin_cleanup_orphans": {
       // Find orphaned blocks
-      const { data: allBlocks } = await supabase.from("sp_session_blocks").select("id, session_id, name, time_start, time_end");
-      const { data: allSessions } = await supabase.from("sp_sessions").select("id");
+      const { data: allBlocks, error: allBlocksErr } = await supabase.from("sp_session_blocks").select("id, session_id, name, time_start, time_end");
+      if (allBlocksErr) return `Failed to fetch blocks: ${allBlocksErr.message}`;
+      const { data: allSessions, error: allSessionsErr } = await supabase.from("sp_sessions").select("id");
+      if (allSessionsErr) return `Failed to fetch sessions: ${allSessionsErr.message}`;
       const sessionIds = new Set((allSessions || []).map((s: { id: string }) => s.id));
       const orphans = (allBlocks || []).filter((b: { session_id: string | null }) =>
         !b.session_id || !sessionIds.has(b.session_id)
@@ -920,7 +931,8 @@ export async function executeAdminAction(
 
     case "admin_shift_phase_sessions": {
       // Find the phase
-      const { data: phases } = await supabase.from("sp_phases").select("id, name");
+      const { data: phases, error: phasesErr } = await supabase.from("sp_phases").select("id, name");
+      if (phasesErr) return `Failed to fetch phases: ${phasesErr.message}`;
       const phase = (phases || []).find((p: { name: string }) =>
         p.name.toLowerCase() === input.phase_name.toLowerCase()
       );
@@ -955,7 +967,8 @@ export async function executeAdminAction(
       }
 
       // Also shift the phase dates
-      const { data: phaseData } = await supabase.from("sp_phases").select("start_date, end_date").eq("id", phase.id).single();
+      const { data: phaseData, error: phaseDataErr } = await supabase.from("sp_phases").select("start_date, end_date").eq("id", phase.id).single();
+      if (phaseDataErr) return `Failed to fetch phase dates: ${phaseDataErr.message}`;
       if (phaseData) {
         const newStart = new Date(phaseData.start_date + "T00:00:00");
         newStart.setDate(newStart.getDate() + input.days);

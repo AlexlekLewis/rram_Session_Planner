@@ -23,6 +23,7 @@ import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { useUserRole } from "@/hooks/useUserRole";
 import { ReadOnlyGrid } from "@/components/session-grid/ReadOnlyGrid";
 import { useAssistantSessionContext } from "@/lib/assistant-session-context";
+import { toast } from "sonner";
 
 export default function SessionPage() {
   const params = useParams();
@@ -166,8 +167,10 @@ export default function SessionPage() {
       if ((e.key === "Delete" || e.key === "Backspace") && !isInput && blockManager.selectedBlockIds.length > 0) {
         e.preventDefault();
         undoRedo.pushState(blockManager.blocks);
+        const count = blockManager.selectedBlockIds.length;
         blockManager.selectedBlockIds.forEach((id) => blockManager.deleteBlock(id));
         blockManager.setSelectedBlockIds([]);
+        toast(`${count === 1 ? "Block" : `${count} blocks`} deleted`, { description: "Press \u2318Z to undo" });
       }
       // Escape — Deselect / close panels
       if (e.key === "Escape") {
@@ -200,6 +203,7 @@ export default function SessionPage() {
     (id: string) => {
       undoRedo.pushState(blockManager.blocks);
       blockManager.deleteBlock(id);
+      toast("Block deleted", { description: "Press \u2318Z to undo" });
     },
     [blockManager, undoRedo]
   );
@@ -235,6 +239,9 @@ export default function SessionPage() {
       if (copied.length > 0) {
         undoRedo.pushState(blockManager.blocks);
         copied.forEach((b) => blockManager.addBlock({ ...b, session_id: sessionId }));
+        toast.success(`Copied ${copied.length} block(s)`);
+      } else {
+        toast.warning("No blocks found in the source time range");
       }
       setCopyHourOpen(false);
     },
