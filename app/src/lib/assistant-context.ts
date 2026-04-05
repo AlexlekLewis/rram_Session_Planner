@@ -12,6 +12,12 @@
 import { Session, SessionBlock, Activity, Squad, Program, Phase } from "./types";
 import { CATEGORY_COLOURS } from "./constants";
 
+interface KnowledgeEntry {
+  category: string;
+  title: string;
+  content: string;
+}
+
 interface AssistantContext {
   session?: Session | null;
   blocks?: SessionBlock[];
@@ -20,10 +26,11 @@ interface AssistantContext {
   program?: Program | null;
   phases?: Phase[];
   allSessions?: Session[];
+  knowledge?: KnowledgeEntry[];
 }
 
 export function buildSystemPrompt(ctx: AssistantContext): string {
-  const { session, blocks = [], activities, squads, program, phases = [], allSessions = [] } = ctx;
+  const { session, blocks = [], activities, squads, program, phases = [], allSessions = [], knowledge = [] } = ctx;
 
   // Session-level context (when inside a session)
   const sessionSquads = session ? squads.filter((s) => session.squad_ids?.includes(s.id)) : [];
@@ -131,6 +138,11 @@ The program has 3 phases: Explore (discovery, baselines), Establish (consolidati
 
 ## AVAILABLE ACTIVITIES (${activities.length} total)
 ${activitySummary}
+
+## YOUR MEMORY (Coaching Knowledge Base)
+${knowledge.length > 0
+    ? knowledge.map((k) => `- [${k.category}] **${k.title}**: ${k.content}`).join("\n")
+    : "No memories stored yet. Use the 'remember' tool to store important coaching preferences, decisions, player notes, and drill feedback. This is your long-term memory — anything stored here persists across all conversations."}
 
 ## BEHAVIOUR RULES — READ CAREFULLY
 1. **You are an assistant, not the head coach.** Suggest, recommend, and advise — never command.

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
@@ -34,6 +34,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const supabase = createClient();
   const { role, isAdmin } = useUserRole();
   const [userEmail, setUserEmail] = useState("");
@@ -78,7 +79,11 @@ export default function DashboardLayout({
     program,
     phases,
     allSessions,
-    onSessionUpdated: fetchGlobalData,
+    onSessionUpdated: useCallback(() => {
+      fetchGlobalData();
+      // Force child pages to re-render with fresh data
+      router.refresh();
+    }, [fetchGlobalData, router]),
   });
 
   // Filter nav items by role

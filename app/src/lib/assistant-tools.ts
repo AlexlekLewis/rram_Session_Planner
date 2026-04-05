@@ -307,6 +307,47 @@ export const ASSISTANT_TOOLS = [
       required: [],
     },
   },
+  {
+    name: "remember",
+    description: "Store something in the coaching knowledge base for permanent memory. Use when the coach tells you something important to remember — their preferences, decisions about the program, notes about players, feedback on drills, or any coaching philosophy. This is your long-term memory.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        category: {
+          type: "string",
+          description: "Type of knowledge",
+          enum: ["coaching_philosophy", "player_note", "drill_feedback", "session_template", "program_decision", "preference", "rule", "learning"],
+        },
+        title: { type: "string", description: "Short title (what this memory is about)" },
+        content: { type: "string", description: "Full detail to remember" },
+        tags: { type: "array", items: { type: "string" }, description: "Searchable tags" },
+      },
+      required: ["category", "title", "content"],
+    },
+  },
+  {
+    name: "recall",
+    description: "Search the coaching knowledge base for previously stored memories. Use when you need to check what was decided before, what the coach's preferences are, or any notes about players or drills.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "What to search for" },
+        category: { type: "string", description: "Filter by category", enum: ["coaching_philosophy", "player_note", "drill_feedback", "session_template", "program_decision", "preference", "rule", "learning"] },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "forget",
+    description: "Remove or deactivate a knowledge base entry. Use when the coach says something is no longer relevant or was wrong.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        knowledge_id: { type: "string", description: "UUID of the knowledge entry to deactivate" },
+      },
+      required: ["knowledge_id"],
+    },
+  },
 ];
 
 /**

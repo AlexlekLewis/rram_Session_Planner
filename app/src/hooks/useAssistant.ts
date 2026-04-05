@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Session, SessionBlock, Activity, Squad, Program, Phase, BlockCategory, Tier } from "@/lib/types";
 import { CATEGORY_COLOURS } from "@/lib/constants";
 import { buildSystemPrompt } from "@/lib/assistant-context";
@@ -83,6 +83,21 @@ export function useAssistant({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messageIdCounter = useRef(0);
+  const [knowledge, setKnowledge] = useState<{ category: string; title: string; content: string }[]>([]);
+
+  // Load coaching knowledge base on mount
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("sp_coaching_knowledge")
+      .select("category, title, content")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(50)
+      .then(({ data }) => {
+        if (data) setKnowledge(data);
+      });
+  }, []);
 
   const genId = () => `msg_${Date.now()}_${++messageIdCounter.current}`;
 
@@ -126,6 +141,12 @@ export function useAssistant({
         return `Create session on ${input.date} ${input.start_time}-${input.end_time}`;
       case "list_sessions":
         return `List all sessions`;
+      case "remember":
+        return `Remember: "${input.title}" (${input.category})`;
+      case "recall":
+        return `Recall: ${input.query || input.category || "all memories"}`;
+      case "forget":
+        return `Forget knowledge entry`;
       default:
         return `${toolName}`;
     }
@@ -391,6 +412,66 @@ export function useAssistant({
             .join("\n");
         }
 
+        case "remember": {
+          try {
+            const supabase = createClient();
+            const { error } = await supabase.from("sp_coaching_knowledge").insert({
+              category: input.category,
+              title: input.title,
+              content: input.content,
+              tags: input.tags || [],
+              source: `AI Coach conversation on ${new Date().toISOString().split("T")[0]}`,
+            });
+            if (error) return `Failed to remember: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "recall": {
+          try {
+            const supabase = createClient();
+            let query = supabase.from("sp_coaching_knowledge").select("*").eq("is_active", true);
+            if (input.category) query = query.eq("category", input.category);
+            const { data, error } = await query.order("created_at", { ascending: false }).limit(20);
+            if (error) return `Failed to recall: ${error.message}`;
+            if (!data || data.length === 0) return "No memories found matching that query.";
+
+            const searchLower = (input.query || "").toLowerCase();
+            const filtered = searchLower
+              ? data.filter((k: { title: string; content: string }) =>
+                  k.title.toLowerCase().includes(searchLower) ||
+                  k.content.toLowerCase().includes(searchLower)
+                )
+              : data;
+
+            if (filtered.length === 0) return "No memories found matching that query.";
+
+            return filtered
+              .map((k: { id: string; category: string; title: string; content: string; created_at: string }) =>
+                `[${k.category}] "${k.title}": ${k.content} (saved ${k.created_at.split("T")[0]}, id: ${k.id})`
+              )
+              .join("\n\n");
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "forget": {
+          try {
+            const supabase = createClient();
+            const { error } = await supabase
+              .from("sp_coaching_knowledge")
+              .update({ is_active: false })
+              .eq("id", input.knowledge_id);
+            if (error) return `Failed: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
         default:
           return `Unknown action: ${toolName}`;
       }
@@ -456,6 +537,7 @@ export function useAssistant({
           program: program || undefined,
           phases,
           allSessions,
+          knowledge,
         });
 
         const response = await fetch("/api/assistant", {
