@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Program, Phase, Squad, Coach } from "@/lib/types";
+import { Program, Phase, Squad, Coach, Player } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Plus, Pencil, Trash2, Save } from "lucide-react";
+import { PlayersTab } from "@/components/settings/PlayersTab";
 
-type Tab = "program" | "squads" | "coaches";
+type Tab = "program" | "squads" | "coaches" | "players";
 
 export default function SettingsPage() {
   const supabase = createClient();
@@ -18,21 +19,24 @@ export default function SettingsPage() {
   const [phases, setPhases] = useState<Phase[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
 
   // Fetch all settings data
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const [progRes, phaseRes, squadRes, coachRes] = await Promise.all([
+      const [progRes, phaseRes, squadRes, coachRes, playerRes] = await Promise.all([
         supabase.from("sp_programs").select("*").single(),
         supabase.from("sp_phases").select("*").order("sort_order"),
         supabase.from("sp_squads").select("*").order("name"),
         supabase.from("sp_coaches").select("*").order("name"),
+        supabase.from("sp_players").select("*").order("last_name"),
       ]);
       if (progRes.data) setProgram(progRes.data as Program);
       setPhases((phaseRes.data || []) as Phase[]);
       setSquads((squadRes.data || []) as Squad[]);
       setCoaches((coachRes.data || []) as Coach[]);
+      setPlayers((playerRes.data || []) as Player[]);
       setLoading(false);
     };
     fetchData();
@@ -57,12 +61,12 @@ export default function SettingsPage() {
         Settings
       </h1>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        Program, squad, and coach management
+        Program, squad, player, and coach management
       </p>
 
       {/* Tab Navigation */}
       <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-        {(["program", "squads", "coaches"] as Tab[]).map((tab) => (
+        {(["program", "squads", "players", "coaches"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -84,6 +88,9 @@ export default function SettingsPage() {
       )}
       {activeTab === "squads" && (
         <SquadsTab squads={squads} setSquads={setSquads} program={program} supabase={supabase} />
+      )}
+      {activeTab === "players" && (
+        <PlayersTab players={players} setPlayers={setPlayers} squads={squads} program={program} supabase={supabase} />
       )}
       {activeTab === "coaches" && (
         <CoachesTab coaches={coaches} setCoaches={setCoaches} supabase={supabase} />

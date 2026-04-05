@@ -84,6 +84,22 @@ export interface SquadSessionDay {
   time: string;
 }
 
+export type PlayerRole = "batsman" | "bowler" | "all_rounder" | "wicketkeeper" | "wicketkeeper_batsman";
+
+export type BowlingStyle =
+  | "right_arm_fast"
+  | "right_arm_medium"
+  | "right_arm_offspin"
+  | "right_arm_legspin"
+  | "left_arm_fast"
+  | "left_arm_medium"
+  | "left_arm_orthodox"
+  | "left_arm_wrist";
+
+export type BattingHand = "right" | "left";
+
+export type TrainingIntensity = "low" | "medium" | "high" | "match";
+
 export interface Player {
   id: string;
   program_id: string;
@@ -91,9 +107,44 @@ export interface Player {
   last_name: string;
   squad_ids: string[];
   cricket_type?: "male" | "female";
+  role?: PlayerRole;
+  batting_hand?: BattingHand;
+  bowling_style?: BowlingStyle;
+  skills?: Record<string, unknown>;
+  notes?: string;
+  is_active?: boolean;
   dob?: string;
   club?: string;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface PlayerBlockAssignment {
+  id: string;
+  player_id: string;
+  block_id: string;
+  session_id: string;
+  category?: BlockCategory;
+  activity_name?: string;
+  duration_mins?: number;
+  balls_bowled?: number;
+  intensity?: TrainingIntensity;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlayerActivitySummary {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  player_role: PlayerRole;
+  category: BlockCategory;
+  block_count: number;
+  total_minutes: number;
+  total_balls_bowled: number;
+  first_session: string;
+  last_session: string;
 }
 
 export interface Coach {
