@@ -1,11 +1,18 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Session, SessionBlock, Activity, Squad, BlockCategory, Tier } from "@/lib/types";
+import { Session, SessionBlock, Activity, Squad, Program, Phase, BlockCategory, Tier } from "@/lib/types";
 import { CATEGORY_COLOURS } from "@/lib/constants";
 import { buildSystemPrompt } from "@/lib/assistant-context";
 import { validateToolCall } from "@/lib/assistant-tools";
 import { createClient } from "@/lib/supabase/client";
+
+/** Shift a YYYY-MM-DD date string by N days */
+function shiftDate(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /**
  * Chat message in the assistant conversation
@@ -36,19 +43,22 @@ export interface ToolCallAction {
 }
 
 interface UseAssistantProps {
-  session: Session;
-  blocks: SessionBlock[];
+  session?: Session | null;
+  blocks?: SessionBlock[];
   activities: Activity[];
   squads: Squad[];
-  sessionId: string;
-  onAddBlock: (block: Omit<SessionBlock, "id" | "created_at" | "updated_at">) => SessionBlock;
-  onUpdateBlock: (id: string, updates: Partial<SessionBlock>) => void;
-  onDeleteBlock: (id: string) => void;
-  onMoveBlock: (id: string, laneStart: number, laneEnd: number, timeStart: string, timeEnd: string) => void;
-  hasCollision: (position: { laneStart: number; laneEnd: number; timeStart: string; timeEnd: string }, excludeId?: string) => boolean;
-  copyHour: (allBlocks: SessionBlock[], sourceStart: string, sourceEnd: string, targetStart: string) => Omit<SessionBlock, "id" | "created_at" | "updated_at">[];
-  onUpdateSession: (updates: Partial<Session>) => Promise<void>;
-  onSessionUpdated: () => void;
+  sessionId?: string;
+  program?: Program | null;
+  phases?: Phase[];
+  allSessions?: Session[];
+  onAddBlock?: (block: Omit<SessionBlock, "id" | "created_at" | "updated_at">) => SessionBlock;
+  onUpdateBlock?: (id: string, updates: Partial<SessionBlock>) => void;
+  onDeleteBlock?: (id: string) => void;
+  onMoveBlock?: (id: string, laneStart: number, laneEnd: number, timeStart: string, timeEnd: string) => void;
+  hasCollision?: (position: { laneStart: number; laneEnd: number; timeStart: string; timeEnd: string }, excludeId?: string) => boolean;
+  copyHour?: (allBlocks: SessionBlock[], sourceStart: string, sourceEnd: string, targetStart: string) => Omit<SessionBlock, "id" | "created_at" | "updated_at">[];
+  onUpdateSession?: (updates: Partial<Session>) => Promise<void>;
+  onSessionUpdated?: () => void;
 }
 
 export function useAssistant({
@@ -65,6 +75,9 @@ export function useAssistant({
   copyHour,
   onUpdateSession,
   onSessionUpdated,
+  program,
+  phases = [],
+  allSessions = [],
 }: UseAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -103,6 +116,16 @@ export function useAssistant({
       }
       case "create_activity":
         return `Create new activity: "${input.name}" (${input.category})`;
+      case "shift_program_dates":
+        return `Shift entire program by ${input.days} days (${input.days > 0 ? "forward" : "backward"})`;
+      case "update_program":
+        return `Update program: ${Object.keys(input).filter(k => input[k]).join(", ")}`;
+      case "update_phase":
+        return `Update phase "${input.phase_name}": ${Object.keys(input).filter(k => k !== "phase_name" && input[k]).join(", ")}`;
+      case "create_session":
+        return `Create session on ${input.date} ${input.start_time}-${input.end_time}`;
+      case "list_sessions":
+        return `List all sessions`;
       default:
         return `${toolName}`;
     }
@@ -121,6 +144,7 @@ export function useAssistant({
 
       switch (toolName) {
         case "add_block": {
+          if (!sessionId || !onAddBlock || !hasCollision) return "Navigate to a session first to place blocks on the grid.";
           // Check collision
           const collision = hasCollision({
             laneStart: input.lane_start,
@@ -149,21 +173,23 @@ export function useAssistant({
             player_groups: [],
             equipment: [],
             coach_assigned: input.coach_assigned,
-            sort_order: blocks.length,
+            sort_order: (blocks || []).length,
             created_by: undefined,
           });
           return null; // Success
         }
 
         case "update_block": {
-          const block = blocks.find((b) => b.id === input.block_id);
+          if (!onUpdateBlock) return "Navigate to a session first.";
+          const block = (blocks || []).find((b) => b.id === input.block_id);
           if (!block) return `Block not found: ${input.block_id}`;
           onUpdateBlock(input.block_id, input.updates);
           return null;
         }
 
         case "move_block": {
-          const block = blocks.find((b) => b.id === input.block_id);
+          if (!onMoveBlock || !hasCollision) return "Navigate to a session first.";
+          const block = (blocks || []).find((b) => b.id === input.block_id);
           if (!block) return `Block not found: ${input.block_id}`;
           const collision = hasCollision(
             { laneStart: input.lane_start, laneEnd: input.lane_end, timeStart: input.time_start, timeEnd: input.time_end },
@@ -175,22 +201,25 @@ export function useAssistant({
         }
 
         case "delete_block": {
-          const block = blocks.find((b) => b.id === input.block_id);
+          if (!onDeleteBlock) return "Navigate to a session first.";
+          const block = (blocks || []).find((b) => b.id === input.block_id);
           if (!block) return `Block not found: ${input.block_id}`;
           onDeleteBlock(input.block_id);
           return null;
         }
 
         case "clear_time_range": {
-          const toDelete = blocks.filter(
+          const toDelete = (blocks || []).filter(
             (b) => b.time_start >= input.time_start && b.time_start < input.time_end
           );
+          if (!onDeleteBlock) return "Navigate to a session first.";
           toDelete.forEach((b) => onDeleteBlock(b.id));
           return null;
         }
 
         case "copy_hour": {
-          const copied = copyHour(blocks, input.source_start, input.source_end, input.target_start);
+          if (!copyHour || !onAddBlock || !sessionId) return "Navigate to a session first.";
+          const copied = copyHour(blocks || [], input.source_start, input.source_end, input.target_start);
           copied.forEach((b) => onAddBlock({ ...b, session_id: sessionId }));
           return null;
         }
@@ -207,7 +236,7 @@ export function useAssistant({
         }
 
         case "get_session_summary": {
-          if (blocks.length === 0) return "The session grid is empty.";
+          if (!blocks || blocks.length === 0) return "The session grid is empty.";
           const sorted = [...blocks].sort((a, b) => a.time_start.localeCompare(b.time_start));
           return `Session has ${blocks.length} blocks from ${sorted[0]?.time_start} to ${sorted[sorted.length - 1]?.time_end}.`;
         }
@@ -224,8 +253,9 @@ export function useAssistant({
             if (input.notes !== undefined) updates.notes = input.notes;
 
             // Execute via the session page's update handler
-            onUpdateSession(updates);
-            onSessionUpdated();
+            if (!onUpdateSession) return "Navigate to a session first to modify session metadata.";
+            await onUpdateSession(updates);
+            if (onSessionUpdated) onSessionUpdated();
             return null; // Success
           } catch (err) {
             return `Failed to update session: ${err instanceof Error ? err.message : "Unknown error"}`;
@@ -255,11 +285,117 @@ export function useAssistant({
           }
         }
 
+        case "shift_program_dates": {
+          try {
+            const supabase = createClient();
+            const days = input.days;
+
+            // Shift program dates
+            if (program) {
+              const newStart = shiftDate(program.start_date, days);
+              const newEnd = shiftDate(program.end_date, days);
+              await supabase.from("sp_programs").update({ start_date: newStart, end_date: newEnd }).eq("id", program.id);
+            }
+
+            // Shift all phase dates
+            for (const phase of phases) {
+              const newStart = shiftDate(phase.start_date, days);
+              const newEnd = shiftDate(phase.end_date, days);
+              await supabase.from("sp_phases").update({ start_date: newStart, end_date: newEnd }).eq("id", phase.id);
+            }
+
+            // Shift all session dates
+            for (const sess of allSessions) {
+              const newDate = shiftDate(sess.date, days);
+              await supabase.from("sp_sessions").update({ date: newDate }).eq("id", sess.id);
+            }
+
+            if (onSessionUpdated) onSessionUpdated();
+            return null;
+          } catch (err) {
+            return `Failed to shift dates: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "update_program": {
+          try {
+            if (!program) return "No program loaded.";
+            const supabase = createClient();
+            const updates: Record<string, string> = {};
+            if (input.name) updates.name = input.name;
+            if (input.start_date) updates.start_date = input.start_date;
+            if (input.end_date) updates.end_date = input.end_date;
+            if (input.description) updates.description = input.description;
+            const { error } = await supabase.from("sp_programs").update(updates).eq("id", program.id);
+            if (error) return `Failed: ${error.message}`;
+            if (onSessionUpdated) onSessionUpdated();
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "update_phase": {
+          try {
+            const supabase = createClient();
+            const phase = phases.find((p) => p.name.toLowerCase() === input.phase_name.toLowerCase());
+            if (!phase) return `Phase "${input.phase_name}" not found. Available: ${phases.map((p) => p.name).join(", ")}`;
+            const updates: Record<string, unknown> = {};
+            if (input.name) updates.name = input.name;
+            if (input.start_date) updates.start_date = input.start_date;
+            if (input.end_date) updates.end_date = input.end_date;
+            if (input.goals) updates.goals = input.goals;
+            if (input.description) updates.description = input.description;
+            const { error } = await supabase.from("sp_phases").update(updates).eq("id", phase.id);
+            if (error) return `Failed: ${error.message}`;
+            if (onSessionUpdated) onSessionUpdated();
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "create_session": {
+          try {
+            const supabase = createClient();
+            // Resolve squad names to IDs
+            const squadIds = (input.squad_names || [])
+              .map((name: string) => squads.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id)
+              .filter(Boolean);
+            const { error } = await supabase.from("sp_sessions").insert({
+              program_id: program?.id,
+              phase_id: phases.find((p) => input.date >= p.start_date && input.date <= p.end_date)?.id || null,
+              venue_id: "a1b2c3d4-0003-4000-8000-000000000001", // CEC Bundoora
+              date: input.date,
+              start_time: input.start_time,
+              end_time: input.end_time,
+              squad_ids: squadIds,
+              theme: input.theme || null,
+              status: "draft",
+            });
+            if (error) return `Failed: ${error.message}`;
+            if (onSessionUpdated) onSessionUpdated();
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "list_sessions": {
+          if (allSessions.length === 0) return "No sessions scheduled.";
+          return allSessions
+            .map((s) => {
+              const sSquads = squads.filter((sq) => s.squad_ids?.includes(sq.id)).map((sq) => sq.name).join(", ");
+              return `${s.date} ${s.start_time}-${s.end_time} | ${sSquads || "No squad"} | "${s.theme || "No theme"}" [${s.status}]`;
+            })
+            .join("\n");
+        }
+
         default:
           return `Unknown action: ${toolName}`;
       }
     },
-    [blocks, sessionId, activities, onAddBlock, onUpdateBlock, onDeleteBlock, onMoveBlock, hasCollision, copyHour, onUpdateSession, onSessionUpdated]
+    [blocks, sessionId, activities, squads, program, phases, allSessions, onAddBlock, onUpdateBlock, onDeleteBlock, onMoveBlock, hasCollision, copyHour, onUpdateSession, onSessionUpdated]
   );
 
   /**
@@ -311,8 +447,16 @@ export function useAssistant({
           content: m.content,
         }));
 
-        // Build system prompt with current state
-        const systemPrompt = buildSystemPrompt({ session, blocks, activities, squads });
+        // Build system prompt with full program + session context
+        const systemPrompt = buildSystemPrompt({
+          session: session || undefined,
+          blocks,
+          activities,
+          squads,
+          program: program || undefined,
+          phases,
+          allSessions,
+        });
 
         const response = await fetch("/api/assistant", {
           method: "POST",

@@ -22,8 +22,6 @@ import { useClipboard } from "@/hooks/useClipboard";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { useUserRole } from "@/hooks/useUserRole";
 import { ReadOnlyGrid } from "@/components/session-grid/ReadOnlyGrid";
-import { AssistantPanel } from "@/components/ai-assistant/AssistantPanel";
-import { useAssistant } from "@/hooks/useAssistant";
 
 export default function SessionPage() {
   const params = useParams();
@@ -40,11 +38,7 @@ export default function SessionPage() {
 
   // Panel state
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [copyHourOpen, setCopyHourOpen] = useState(false);
-
-  // Activities for assistant context
-  const [allActivities, setAllActivities] = useState<Activity[]>([]);
   const [tierSelector, setTierSelector] = useState<{
     activity: Activity;
     position: { x: number; y: number };
@@ -106,11 +100,10 @@ export default function SessionPage() {
       try {
         setIsLoading(true);
         setError(null);
-        const [sessionRes, blocksRes, squadsRes, activitiesRes] = await Promise.all([
+        const [sessionRes, blocksRes, squadsRes] = await Promise.all([
           supabase.from("sp_sessions").select("*").eq("id", sessionId).single(),
           supabase.from("sp_session_blocks").select("*").eq("session_id", sessionId).order("sort_order"),
           supabase.from("sp_squads").select("*"),
-          supabase.from("sp_activities").select("*").eq("is_global", true).order("name"),
         ]);
         if (sessionRes.error) throw sessionRes.error;
         setSession(sessionRes.data as Session);
@@ -119,7 +112,6 @@ export default function SessionPage() {
         blockManager.setBlocks((blocksRes.data || []) as SessionBlock[]);
         if (squadsRes.error) throw squadsRes.error;
         setSquads((squadsRes.data || []) as Squad[]);
-        if (!activitiesRes.error) setAllActivities((activitiesRes.data || []) as Activity[]);
       } catch (err) {
         console.error("Error fetching session data:", err);
         setError(err instanceof Error ? err.message : "Failed to load session");
@@ -301,27 +293,6 @@ export default function SessionPage() {
     if (updates.theme !== undefined) setTheme(updates.theme || "");
   }, [supabase, sessionId]);
 
-  // AI Assistant — admin-level access to modify sessions, create activities, manage blocks
-  const assistant = useAssistant({
-    session: session!,
-    blocks: blockManager.blocks,
-    activities: allActivities,
-    squads,
-    sessionId,
-    onAddBlock: addBlock,
-    onUpdateBlock: updateBlock,
-    onDeleteBlock: deleteBlock,
-    onMoveBlock: moveBlock,
-    hasCollision: blockManager.hasCollision,
-    copyHour: clipboard.copyHour,
-    onUpdateSession: handleSessionMetadataUpdate,
-    onSessionUpdated: useCallback(() => {
-      supabase.from("sp_sessions").select("*").eq("id", sessionId).single().then(({ data }) => {
-        if (data) { setSession(data as Session); setTheme(data.theme || ""); }
-      });
-    }, [supabase, sessionId]),
-  });
-
   const getSessionDate = () => {
     if (!session?.date) return "";
     const date = new Date(session.date + "T00:00:00");
@@ -374,24 +345,13 @@ export default function SessionPage() {
                     Copy Hour
                   </button>
                   <button
-                    onClick={() => { setLibraryOpen(!libraryOpen); if (!libraryOpen) setAssistantOpen(false); }}
+                    onClick={() => setLibraryOpen(!libraryOpen)}
                     className={cn(
                       "text-xs px-3 py-1.5 font-semibold rounded-lg transition",
                       libraryOpen ? "bg-rr-pink text-white" : "bg-rr-pink/10 text-rr-pink hover:bg-rr-pink/20"
                     )}
                   >
                     {libraryOpen ? "Close Library" : "Activity Library"}
-                  </button>
-                  <button
-                    onClick={() => { setAssistantOpen(!assistantOpen); if (!assistantOpen) setLibraryOpen(false); }}
-                    className={cn(
-                      "text-xs px-3 py-1.5 font-semibold rounded-lg transition",
-                      assistantOpen
-                        ? "bg-gradient-to-r from-rr-blue to-rr-pink text-white"
-                        : "bg-gradient-to-r from-rr-blue/10 to-rr-pink/10 text-rr-blue hover:from-rr-blue/20 hover:to-rr-pink/20"
-                    )}
-                  >
-                    AI Coach
                   </button>
                   <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
                   <SaveIndicator status={saveStatus} />
@@ -468,20 +428,6 @@ export default function SessionPage() {
             e.dataTransfer.effectAllowed = "copy";
           }}
         />
-
-        {/* AI Coaching Assistant Panel */}
-        {canEdit && (
-          <AssistantPanel
-            isOpen={assistantOpen}
-            onClose={() => setAssistantOpen(false)}
-            messages={assistant.messages}
-            isLoading={assistant.isLoading}
-            error={assistant.error}
-            onSendMessage={assistant.sendMessage}
-            onApplyActions={assistant.applyActions}
-            onClearChat={assistant.clearChat}
-          />
-        )}
 
         {/* Block Detail Panel */}
         {selectedBlock && (

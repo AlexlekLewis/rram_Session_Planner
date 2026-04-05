@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -8,7 +8,10 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { useUserRole } from "@/hooks/useUserRole";
-import { UserRole } from "@/lib/types";
+import { UserRole, Program, Phase, Session, Activity, Squad } from "@/lib/types";
+import { AssistantPanel } from "@/components/ai-assistant/AssistantPanel";
+import { useAssistant } from "@/hooks/useAssistant";
+import { Sparkles } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -34,12 +37,49 @@ export default function DashboardLayout({
   const supabase = createClient();
   const { role, isAdmin } = useUserRole();
   const [userEmail, setUserEmail] = useState("");
+  const [assistantOpen, setAssistantOpen] = useState(false);
+
+  // Global data for AI Coach context
+  const [program, setProgram] = useState<Program | null>(null);
+  const [phases, setPhases] = useState<Phase[]>([]);
+  const [allSessions, setAllSessions] = useState<Session[]>([]);
+  const [allActivities, setAllActivities] = useState<Activity[]>([]);
+  const [globalSquads, setGlobalSquads] = useState<Squad[]>([]);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? "");
     });
   }, [supabase]);
+
+  // Fetch global program data for AI Coach
+  const fetchGlobalData = useCallback(async () => {
+    const [progRes, phaseRes, sessRes, actRes, squadRes] = await Promise.all([
+      supabase.from("sp_programs").select("*").single(),
+      supabase.from("sp_phases").select("*").order("sort_order"),
+      supabase.from("sp_sessions").select("*").order("date"),
+      supabase.from("sp_activities").select("*").eq("is_global", true).order("name"),
+      supabase.from("sp_squads").select("*").order("name"),
+    ]);
+    if (progRes.data) setProgram(progRes.data as Program);
+    setPhases((phaseRes.data || []) as Phase[]);
+    setAllSessions((sessRes.data || []) as Session[]);
+    setAllActivities((actRes.data || []) as Activity[]);
+    setGlobalSquads((squadRes.data || []) as Squad[]);
+  }, [supabase]);
+
+  useEffect(() => { fetchGlobalData(); }, [fetchGlobalData]);
+
+  // Global AI Coach — program-level access
+  const canUseAssistant = role === "head_coach" || role === "assistant_coach";
+  const assistant = useAssistant({
+    activities: allActivities,
+    squads: globalSquads,
+    program,
+    phases,
+    allSessions,
+    onSessionUpdated: fetchGlobalData,
+  });
 
   // Filter nav items by role
   const visibleNavItems = useMemo(() => {
@@ -93,8 +133,22 @@ export default function DashboardLayout({
             </nav>
           </div>
 
-          {/* Right: Theme + User */}
+          {/* Right: AI Coach + Theme + User */}
           <div className="flex items-center gap-3">
+            {canUseAssistant && (
+              <button
+                onClick={() => setAssistantOpen(!assistantOpen)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition",
+                  assistantOpen
+                    ? "bg-gradient-to-r from-rr-blue to-rr-pink text-white"
+                    : "text-rr-pink hover:bg-rr-pink/10"
+                )}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">AI Coach</span>
+              </button>
+            )}
             <ThemeToggle />
             {isAdmin && (
               <span className="text-[10px] font-semibold bg-rr-pink/10 text-rr-pink px-1.5 py-0.5 rounded-full">
@@ -116,6 +170,20 @@ export default function DashboardLayout({
 
       {/* Main Content */}
       <main className="flex-1">{children}</main>
+
+      {/* Global AI Coach Panel — available on every page */}
+      {canUseAssistant && (
+        <AssistantPanel
+          isOpen={assistantOpen}
+          onClose={() => setAssistantOpen(false)}
+          messages={assistant.messages}
+          isLoading={assistant.isLoading}
+          error={assistant.error}
+          onSendMessage={assistant.sendMessage}
+          onApplyActions={assistant.applyActions}
+          onClearChat={assistant.clearChat}
+        />
+      )}
     </div>
   );
 }

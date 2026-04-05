@@ -242,6 +242,71 @@ export const ASSISTANT_TOOLS = [
       required: ["name", "category", "description"],
     },
   },
+  {
+    name: "shift_program_dates",
+    description: "Shift the entire program (all phases and sessions) by a number of days. Use when the coach says 'move everything forward/back by a week' or 'the program starts a week later'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        days: { type: "number", description: "Number of days to shift. Positive = forward, negative = backward. E.g., 7 = push everything one week later." },
+      },
+      required: ["days"],
+    },
+  },
+  {
+    name: "update_program",
+    description: "Update program-level details — name, start date, end date, description.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string" },
+        start_date: { type: "string", description: "YYYY-MM-DD" },
+        end_date: { type: "string", description: "YYYY-MM-DD" },
+        description: { type: "string" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "update_phase",
+    description: "Update a program phase — name, dates, goals, description.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phase_name: { type: "string", description: "Current name of the phase to update (e.g., 'Explore', 'Establish', 'Excel')" },
+        name: { type: "string", description: "New name (if renaming)" },
+        start_date: { type: "string", description: "YYYY-MM-DD" },
+        end_date: { type: "string", description: "YYYY-MM-DD" },
+        goals: { type: "array", items: { type: "string" }, description: "Phase goals" },
+        description: { type: "string" },
+      },
+      required: ["phase_name"],
+    },
+  },
+  {
+    name: "create_session",
+    description: "Create a new training session on a specific date and time with squad assignments.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "Session date YYYY-MM-DD" },
+        start_time: { type: "string", description: "Start time HH:MM" },
+        end_time: { type: "string", description: "End time HH:MM" },
+        squad_names: { type: "array", items: { type: "string" }, description: "Squad names (e.g., ['Squad 1', 'Squad F'])" },
+        theme: { type: "string" },
+      },
+      required: ["date", "start_time", "end_time"],
+    },
+  },
+  {
+    name: "list_sessions",
+    description: "List all sessions in the program with dates, times, squads, and status. Use when the coach asks 'show me the schedule' or 'what sessions do we have?'",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 /**

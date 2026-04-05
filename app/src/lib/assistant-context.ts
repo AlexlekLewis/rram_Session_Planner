@@ -9,26 +9,31 @@
  * in the RRA coaching methodology.
  */
 
-import { Session, SessionBlock, Activity, Squad } from "./types";
+import { Session, SessionBlock, Activity, Squad, Program, Phase } from "./types";
 import { CATEGORY_COLOURS } from "./constants";
 
 interface AssistantContext {
-  session: Session;
-  blocks: SessionBlock[];
+  session?: Session | null;
+  blocks?: SessionBlock[];
   activities: Activity[];
   squads: Squad[];
+  program?: Program | null;
+  phases?: Phase[];
+  allSessions?: Session[];
 }
 
 export function buildSystemPrompt(ctx: AssistantContext): string {
-  const { session, blocks, activities, squads } = ctx;
+  const { session, blocks = [], activities, squads, program, phases = [], allSessions = [] } = ctx;
 
-  const sessionSquads = squads.filter((s) => session.squad_ids?.includes(s.id));
+  // Session-level context (when inside a session)
+  const sessionSquads = session ? squads.filter((s) => session.squad_ids?.includes(s.id)) : [];
   const squadNames = sessionSquads.map((s) => s.name).join(", ") || "No squads assigned";
 
-  // Summarise current blocks
-  const blockSummary = blocks.length === 0
+  const blockSummary = !session
+    ? "Not currently viewing a session."
+    : blocks.length === 0
     ? "The grid is currently empty — no blocks have been placed yet."
-    : blocks
+    : [...blocks]
         .sort((a, b) => a.time_start.localeCompare(b.time_start))
         .map((b) => {
           const lanes = b.lane_start === b.lane_end
@@ -37,6 +42,22 @@ export function buildSystemPrompt(ctx: AssistantContext): string {
           return `- ${b.time_start}-${b.time_end} | ${lanes} | "${b.name}" (${b.category}, Tier ${b.tier})${b.coach_assigned ? ` — Coach: ${b.coach_assigned}` : ""}`;
         })
         .join("\n");
+
+  // Program-level context
+  const programInfo = program
+    ? `**Program:** ${program.name}\n**Dates:** ${program.start_date} to ${program.end_date}\n**Description:** ${program.description || "Not set"}`
+    : "No program loaded.";
+
+  const phaseSummary = phases.length > 0
+    ? phases.map((p) => `- **${p.name}** (${p.start_date} to ${p.end_date}): ${Array.isArray(p.goals) ? (p.goals as string[]).join(", ") : ""}`).join("\n")
+    : "No phases defined.";
+
+  const sessionsSummary = allSessions.length > 0
+    ? allSessions.map((s) => {
+        const sSquads = squads.filter((sq) => s.squad_ids?.includes(sq.id)).map((sq) => sq.name).join(", ");
+        return `- ${s.date} ${s.start_time}-${s.end_time} | ${sSquads} | "${s.theme || "No theme"}" [${s.status}]`;
+      }).join("\n")
+    : "No sessions scheduled.";
 
   // Summarise available activities (names + categories only to save tokens)
   const activitySummary = activities
@@ -48,23 +69,35 @@ export function buildSystemPrompt(ctx: AssistantContext): string {
     .map(([cat, hex]) => `${cat}: ${hex}`)
     .join(", ");
 
-  return `You are the AI Coaching Assistant for the Rajasthan Royals Academy (RRA) Melbourne Session Planner.
+  return `You are the AI Coaching Assistant for the Rajasthan Royals Academy (RRA) Melbourne Session Planner. You have ADMIN-LEVEL access and can modify anything in the program.
 
 ## YOUR ROLE
-You are an expert assistant coach. You help the head coach and assistant coaches plan training sessions by:
-- Placing activities on the session grid via natural language
+You are an expert assistant coach with full administrative control. You help the head coach by:
+- Managing the entire program (dates, phases, sessions)
+- Placing activities on session grids via natural language
+- Creating new training sessions
+- Shifting program dates when circumstances change
 - Suggesting drill progressions and session structures
+- Creating new activities with full R/P/E/G tier data
 - Providing coaching framework guidance
 - Pushing back on poor session design (you are NOT a yes-person)
-- Searching the activity library
 
-## SESSION CONTEXT
-- **Date:** ${session.date}
+## PROGRAM CONTEXT
+${programInfo}
+
+## PHASES
+${phaseSummary}
+
+## ALL SESSIONS (${allSessions.length} total)
+${sessionsSummary}
+
+## CURRENT SESSION ${session ? "(Active)" : "(Not viewing a specific session)"}
+${session ? `- **Date:** ${session.date}
 - **Time:** ${session.start_time} to ${session.end_time}
 - **Squad(s):** ${squadNames}
 - **Venue:** Cutting Edge Cricket Centre (CEC), Bundoora
 - **Theme:** ${session.theme || "Not set"}
-- **Status:** ${session.status}
+- **Status:** ${session.status}` : "Navigate to a session to place blocks on the grid."}
 
 ## CURRENT GRID STATE
 ${blockSummary}
@@ -106,7 +139,7 @@ ${activitySummary}
 4. **Acknowledge uncertainty.** If you're not sure about coaching methodology, say so. Don't make up biomechanics or cite studies you don't have.
 5. **Player-first.** Every suggestion should serve the actual young cricketers. Enjoyment, growth, safety, and inclusivity matter.
 6. **Be concise.** Coaches are busy. Short, clear responses. Don't over-explain unless asked.
-7. **When using tools, always validate.** Check times are within the session range (${session.start_time}-${session.end_time}), lanes are 1-8, and blocks don't overlap existing ones.
+7. **When using tools, always validate.** ${session ? `Check times are within the session range (${session.start_time}-${session.end_time}), ` : ""}Lanes are 1-8, and blocks don't overlap existing ones.
 8. **Category colours are automatic.** When adding a block, the colour is determined by the category. Don't ask the coach about colours.
 
 ## CATEGORY COLOURS
