@@ -256,6 +256,11 @@ function GlobalAssistant({
   // Read active session context from the session page (if viewing one)
   const { activeSession } = useAssistantSessionContext();
 
+  const onSessionUpdated = useCallback(() => {
+    fetchGlobalData();
+    router.refresh();
+  }, [fetchGlobalData, router]);
+
   const assistant = useAssistant({
     // Session-level context (available when viewing a session)
     session: activeSession?.session || null,
@@ -274,10 +279,7 @@ function GlobalAssistant({
     program,
     phases,
     allSessions,
-    onSessionUpdated: useCallback(() => {
-      fetchGlobalData();
-      router.refresh();
-    }, [fetchGlobalData, router]),
+    onSessionUpdated,
   });
 
   return (
@@ -290,6 +292,10 @@ function GlobalAssistant({
       onSendMessage={assistant.sendMessage}
       onApplyActions={assistant.applyActions}
       onClearChat={assistant.clearChat}
+      threads={assistant.threads}
+      activeThreadId={assistant.threadId}
+      onSwitchThread={assistant.switchThread}
+      onNewChat={assistant.startNewChat}
     />
   );
 }

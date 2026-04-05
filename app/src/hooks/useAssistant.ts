@@ -61,6 +61,18 @@ interface UseAssistantProps {
   onSessionUpdated?: () => void;
 }
 
+/** Thread summary for the thread selector */
+export interface ThreadSummary {
+  id: string;
+  title: string | null;
+  session_id: string | null;
+  updated_at: string;
+}
+
+// Module-level flags survive error-boundary re-mounts (refs don't)
+let _initialLoadDone = false;
+let _userStartedNewChat = false;
+
 export function useAssistant({
   session,
   blocks,
@@ -84,10 +96,13 @@ export function useAssistant({
   const [error, setError] = useState<string | null>(null);
   const messageIdCounter = useRef(0);
   const [knowledge, setKnowledge] = useState<{ category: string; title: string; content: string }[]>([]);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const supabaseRef = useRef(createClient());
 
   // Load coaching knowledge base on mount
   useEffect(() => {
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
     supabase
       .from("sp_coaching_knowledge")
       .select("category, title, content")
@@ -97,6 +112,106 @@ export function useAssistant({
       .then(({ data }) => {
         if (data) setKnowledge(data);
       });
+  }, []);
+
+  /** Load messages for a specific thread */
+  const loadThread = useCallback(async (id: string) => {
+    const supabase = supabaseRef.current;
+    const { data } = await supabase
+      .from("sp_assistant_messages")
+      .select("id, role, content, tool_calls, actions_applied, created_at")
+      .eq("thread_id", id)
+      .order("created_at", { ascending: true });
+
+    if (data) {
+      const loaded: ChatMessage[] = data.map((m) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        toolCalls: m.tool_calls && Array.isArray(m.tool_calls) && m.tool_calls.length > 0
+          ? m.tool_calls.map((tc: { id: string; toolName: string; input: Record<string, unknown>; description: string; error?: string }) => ({
+              id: tc.id,
+              toolName: tc.toolName,
+              input: tc.input,
+              description: tc.description,
+              error: tc.error,
+            }))
+          : undefined,
+        actionsApplied: m.actions_applied,
+        timestamp: new Date(m.created_at),
+      }));
+      setMessages(loaded);
+      setThreadId(id);
+    }
+  }, []);
+
+  // Load thread list on mount
+  const loadThreads = useCallback(async () => {
+    const supabase = supabaseRef.current;
+    const { data } = await supabase
+      .from("sp_assistant_threads")
+      .select("id, title, session_id, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(15);
+    if (data) setThreads(data as ThreadSummary[]);
+  }, []);
+
+  useEffect(() => { loadThreads(); }, [loadThreads]);
+
+  // Load the most recent thread on mount (resume last conversation)
+  useEffect(() => {
+    if (threads.length > 0 && !_initialLoadDone && !_userStartedNewChat) {
+      _initialLoadDone = true;
+      loadThread(threads[0].id);
+    }
+  }, [threads, loadThread]);
+
+  /** Create a new thread in the DB */
+  const createThread = useCallback(async (firstMessage: string): Promise<string | null> => {
+    const supabase = supabaseRef.current;
+    const { data: userData } = await supabase.auth.getUser();
+    const title = firstMessage.length > 50 ? firstMessage.slice(0, 50) + "..." : firstMessage;
+    const { data, error } = await supabase
+      .from("sp_assistant_threads")
+      .insert({
+        user_id: userData.user?.id,
+        title,
+        session_id: sessionId || null,
+      })
+      .select("id")
+      .single();
+    if (error || !data) return null;
+    return data.id;
+  }, [sessionId]);
+
+  /** Save a message to the DB */
+  const saveMessage = useCallback(async (tId: string, msg: ChatMessage) => {
+    const supabase = supabaseRef.current;
+    const { data } = await supabase.from("sp_assistant_messages").insert({
+      thread_id: tId,
+      role: msg.role,
+      content: msg.content,
+      tool_calls: msg.toolCalls || [],
+      actions_applied: msg.actionsApplied || false,
+    }).select("id").single();
+    // Update the client-side message ID to match the DB UUID
+    if (data) {
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, id: data.id } : m));
+    }
+  }, []);
+
+  /** Switch to an existing thread */
+  const switchThread = useCallback(async (id: string) => {
+    _userStartedNewChat = false;
+    await loadThread(id);
+  }, [loadThread]);
+
+  /** Start a new chat (clears current, new thread created lazily on first send) */
+  const startNewChat = useCallback(() => {
+    _userStartedNewChat = true;
+    setThreadId(null);
+    setMessages([]);
+    setError(null);
   }, []);
 
   const genId = () => `msg_${Date.now()}_${++messageIdCounter.current}`;
@@ -498,8 +613,16 @@ export function useAssistant({
       setMessages((prev) =>
         prev.map((m) => (m.id === messageId ? { ...m, actionsApplied: true } : m))
       );
+
+      // Persist actions_applied to DB
+      if (threadId) {
+        await supabaseRef.current
+          .from("sp_assistant_messages")
+          .update({ actions_applied: true })
+          .eq("id", messageId);
+      }
     },
-    [messages, executeAction]
+    [messages, executeAction, threadId]
   );
 
   /**
@@ -522,6 +645,18 @@ export function useAssistant({
       setIsLoading(true);
 
       try {
+        // Create thread lazily on first message
+        let currentThreadId = threadId;
+        if (!currentThreadId) {
+          currentThreadId = await createThread(userText.trim());
+          if (currentThreadId) setThreadId(currentThreadId);
+        }
+
+        // Save user message to DB
+        if (currentThreadId) {
+          await saveMessage(currentThreadId, userMsg);
+        }
+
         // Build API messages from chat history
         const apiMessages = [...messages, userMsg].map((m) => ({
           role: m.role,
@@ -585,6 +720,17 @@ export function useAssistant({
         };
 
         setMessages((prev) => [...prev, assistantMsg]);
+
+        // Save assistant message to DB
+        if (currentThreadId) {
+          await saveMessage(currentThreadId, assistantMsg);
+          // Update thread timestamp + refresh thread list
+          await supabaseRef.current
+            .from("sp_assistant_threads")
+            .update({ updated_at: new Date().toISOString() })
+            .eq("id", currentThreadId);
+          loadThreads();
+        }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Something went wrong";
         setError(errorMsg);
@@ -602,13 +748,13 @@ export function useAssistant({
         setIsLoading(false);
       }
     },
-    [messages, isLoading, session, blocks, activities, squads]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messages, isLoading, session, blocks, activities, squads, threadId, createThread, saveMessage, loadThreads, knowledge, program, phases, allSessions]
   );
 
   const clearChat = useCallback(() => {
-    setMessages([]);
-    setError(null);
-  }, []);
+    startNewChat();
+  }, [startNewChat]);
 
   return {
     messages,
@@ -617,5 +763,10 @@ export function useAssistant({
     sendMessage,
     applyActions,
     clearChat,
+    // Thread management
+    threads,
+    threadId,
+    switchThread,
+    startNewChat,
   };
 }

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ChatMessage as ChatMessageType } from "@/hooks/useAssistant";
+import { ChatMessage as ChatMessageType, ThreadSummary } from "@/hooks/useAssistant";
 import { ChatMessage } from "./ChatMessage";
 import { cn } from "@/lib/utils";
-import { X, Send, Sparkles, Trash2 } from "lucide-react";
+import { X, Send, Sparkles, Trash2, ChevronDown, Plus, MessageSquare } from "lucide-react";
 
 interface AssistantPanelProps {
   isOpen: boolean;
@@ -15,6 +15,10 @@ interface AssistantPanelProps {
   onSendMessage: (text: string) => void;
   onApplyActions: (messageId: string) => void;
   onClearChat: () => void;
+  threads?: ThreadSummary[];
+  activeThreadId?: string | null;
+  onSwitchThread?: (id: string) => void;
+  onNewChat?: () => void;
 }
 
 export function AssistantPanel({
@@ -26,8 +30,13 @@ export function AssistantPanel({
   onSendMessage,
   onApplyActions,
   onClearChat,
+  threads = [],
+  activeThreadId,
+  onSwitchThread,
+  onNewChat,
 }: AssistantPanelProps) {
   const [input, setInput] = useState("");
+  const [showThreads, setShowThreads] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -83,6 +92,27 @@ export function AssistantPanel({
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {onNewChat && (
+            <button
+              onClick={() => { onNewChat(); setShowThreads(false); }}
+              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              title="New chat"
+            >
+              <Plus className="w-4 h-4 text-gray-400" />
+            </button>
+          )}
+          {threads.length > 0 && onSwitchThread && (
+            <button
+              onClick={() => setShowThreads(!showThreads)}
+              className={cn(
+                "p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors",
+                showThreads && "bg-gray-100 dark:bg-gray-800"
+              )}
+              title="Past conversations"
+            >
+              <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", showThreads && "rotate-180")} />
+            </button>
+          )}
           {messages.length > 0 && (
             <button
               onClick={onClearChat}
@@ -101,6 +131,32 @@ export function AssistantPanel({
           </button>
         </div>
       </div>
+
+      {/* Thread selector dropdown */}
+      {showThreads && threads.length > 0 && onSwitchThread && (
+        <div className="border-b border-gray-200 dark:border-gray-700 max-h-48 overflow-y-auto">
+          {threads.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => { onSwitchThread(t.id); setShowThreads(false); }}
+              className={cn(
+                "w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors",
+                t.id === activeThreadId && "bg-rr-pink/5 border-l-2 border-rr-pink"
+              )}
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
+                  {t.title || "Untitled chat"}
+                </p>
+                <p className="text-[10px] text-gray-400">
+                  {new Date(t.updated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
