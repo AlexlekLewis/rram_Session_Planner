@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Session, SessionBlock, Squad, BlockCategory, Tier, Activity } from "@/lib/types";
+import { Session, SessionBlock, Squad, BlockCategory, Tier, Activity, AvailabilityStatus } from "@/lib/types";
+import { useCoaches } from "@/hooks/useCoaches";
+import { SessionCoachBar } from "@/components/session-grid/SessionCoachBar";
 import { cn } from "@/lib/utils";
 import { formatTime, CATEGORY_COLOURS } from "@/lib/constants";
 import { SquadBadge } from "@/components/shared/SquadBadge";
@@ -53,6 +55,15 @@ export default function SessionPage() {
   // Role check — guest coaches and players get read-only view
   const { role } = useUserRole();
   const canEdit = role === "head_coach" || role === "assistant_coach";
+  const isAdmin = role === "head_coach";
+
+  // Coach availability & rostering for this session
+  const [sessionDate, setSessionDate] = useState<string | undefined>();
+  const coachData = useCoaches({
+    programId: session?.program_id,
+    dateRange: sessionDate ? { start: sessionDate, end: sessionDate } : undefined,
+    sessionId,
+  });
 
   // Core hooks
   const blockManager = useSessionBlocks([]);
@@ -109,6 +120,7 @@ export default function SessionPage() {
         ]);
         if (sessionRes.error) throw sessionRes.error;
         setSession(sessionRes.data as Session);
+        setSessionDate(sessionRes.data?.date);
         setTheme(sessionRes.data?.theme || "");
         if (blocksRes.error) throw blocksRes.error;
         blockManager.setBlocks((blocksRes.data || []) as SessionBlock[]);
@@ -412,10 +424,28 @@ export default function SessionPage() {
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {sessionSquads.map((squad) => (
-                <SquadBadge key={squad.id} name={squad.name} colour={squad.colour} size="sm" />
-              ))}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                {sessionSquads.map((squad) => (
+                  <SquadBadge key={squad.id} name={squad.name} colour={squad.colour} size="sm" />
+                ))}
+              </div>
+              {coachData.coaches.length > 0 && (
+                <>
+                  <div className="w-px h-5 bg-gray-200 dark:bg-gray-700" />
+                  <SessionCoachBar
+                    coaches={coachData.coaches}
+                    sessionCoaches={coachData.sessionCoaches}
+                    availability={coachData.coaches.map((c) => ({
+                      userId: c.user_id,
+                      status: coachData.getCoachAvailabilityForDate(c.user_id, session.date) as AvailabilityStatus | null,
+                    }))}
+                    onRoster={(userId) => coachData.rosterCoach(sessionId, userId)}
+                    onUnroster={(userId) => coachData.unrosterCoach(sessionId, userId)}
+                    isAdmin={isAdmin}
+                  />
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-400 dark:text-gray-500">Theme:</span>
