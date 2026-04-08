@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 export function LaneHeader() {
   return (
     <div
-      className="grid gap-0 border-l border-gray-200"
+      className="grid gap-0"
       style={{
         gridTemplateColumns: `repeat(${LANES.length}, 1fr)`,
       }}

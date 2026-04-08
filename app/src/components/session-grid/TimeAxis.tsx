@@ -13,7 +13,7 @@ export function TimeAxis({ startTime, endTime }: TimeAxisProps) {
   return (
     <div className="w-16 bg-gray-50 border-r border-gray-200 overflow-hidden flex flex-col">
       {/* Header spacer */}
-      <div className="h-14 border-b border-gray-200 flex-shrink-0" />
+      <div className="h-[62px] border-b border-gray-200 flex-shrink-0" />
 
       {/* Time labels */}
       <div className="flex-1 flex flex-col overflow-hidden">
