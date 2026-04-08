@@ -666,13 +666,22 @@ export function useAssistant({
 
             let availData: Record<string, string> = {};
             if (input.date) {
-              const { data: avail } = await supabase
-                .from("sp_coach_availability")
-                .select("user_id, status")
+              // Resolve date to session IDs (availability is keyed by session_id, not date)
+              const { data: dateSessions } = await supabase
+                .from("sp_sessions")
+                .select("id")
                 .eq("program_id", programId)
                 .eq("date", input.date);
-              if (avail) {
-                availData = Object.fromEntries(avail.map((a: { user_id: string; status: string }) => [a.user_id, a.status]));
+              const dateSessionIds = (dateSessions || []).map((s: { id: string }) => s.id);
+              if (dateSessionIds.length > 0) {
+                const { data: avail } = await supabase
+                  .from("sp_coach_availability")
+                  .select("user_id, status")
+                  .eq("program_id", programId)
+                  .in("session_id", dateSessionIds);
+                if (avail) {
+                  availData = Object.fromEntries(avail.map((a: { user_id: string; status: string }) => [a.user_id, a.status]));
+                }
               }
             }
 
@@ -706,13 +715,33 @@ export function useAssistant({
             );
             if (!coach) return `Coach "${input.coach_name}" not found. Available coaches: ${coaches?.map((c: { display_name: string }) => c.display_name).join(", ")}`;
 
-            const { error } = await supabase
-              .from("sp_coach_availability")
-              .upsert(
-                { program_id: programId, user_id: coach.user_id, date: input.date, status: input.status, notes: input.notes || null },
-                { onConflict: "program_id,user_id,date" }
-              );
-            if (error) return `Failed: ${error.message}`;
+            // Find matching sessions on that date
+            let sessionsQuery = supabase
+              .from("sp_sessions")
+              .select("id, start_time, end_time")
+              .eq("program_id", programId)
+              .eq("date", input.date);
+
+            if (input.start_time) {
+              sessionsQuery = sessionsQuery.eq("start_time", input.start_time);
+            }
+
+            const { data: sessions } = await sessionsQuery;
+            if (!sessions || sessions.length === 0) return `No sessions found on ${input.date}${input.start_time ? ` at ${input.start_time}` : ""}.`;
+
+            // Set availability for each matching session
+            const results = await Promise.all(
+              sessions.map((s: { id: string }) =>
+                supabase
+                  .from("sp_coach_availability")
+                  .upsert(
+                    { program_id: programId, session_id: s.id, user_id: coach.user_id, status: input.status, notes: input.notes || null },
+                    { onConflict: "session_id,user_id" }
+                  )
+              )
+            );
+            const failed = results.find((r) => r.error);
+            if (failed?.error) return `Failed: ${failed.error.message}`;
             return null;
           } catch (err) {
             return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
@@ -895,14 +924,14 @@ export function useAssistant({
               .eq("status", "active")
               .in("role", ["head_coach", "assistant_coach", "guest_coach"]);
 
-            // Get availability for the date
+            // Get availability for the session
             let availData: Record<string, string> = {};
-            if (sessionDate) {
+            if (targetSessionId) {
               const { data: avail } = await supabase
                 .from("sp_coach_availability")
                 .select("user_id, status")
                 .eq("program_id", programId)
-                .eq("date", sessionDate);
+                .eq("session_id", targetSessionId);
               if (avail) {
                 availData = Object.fromEntries(avail.map((a: { user_id: string; status: string }) => [a.user_id, a.status]));
               }
@@ -1139,7 +1168,7 @@ export function useAssistant({
         // H2 fix: Auto-execute informational tools and get follow-up response
         const INFORMATIONAL_TOOLS = new Set([
           "recall", "search_activities", "get_session_summary", "list_sessions",
-          "get_knowledge_base", "list_coaches", "get_session_roster",
+          "list_coaches", "get_session_roster",
         ]);
 
         if (data.stop_reason === "tool_use" && toolCalls.length > 0) {

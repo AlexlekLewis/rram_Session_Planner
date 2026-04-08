@@ -1,88 +1,89 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useProgram } from "@/lib/program-context";
 import { useCoaches } from "@/hooks/useCoaches";
 import { CoachRosterTable } from "@/components/coaches/CoachRosterTable";
 import { CoachProfileModal } from "@/components/coaches/CoachProfileModal";
-import { ProgramMember, AvailabilityStatus } from "@/lib/types";
+import { ProgramMember, AvailabilityStatus, Session } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
-import { useEffect } from "react";
 
-// Generate array of date strings for a week starting from a given Monday
-function getWeekDates(startDate: Date): string[] {
-  const dates: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + i);
-    dates.push(d.toISOString().split("T")[0]);
-  }
-  return dates;
-}
-
-// Get the Monday of the week containing the given date
-function getMonday(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function formatWeekRange(monday: Date): string {
-  const sunday = new Date(monday);
-  sunday.setDate(sunday.getDate() + 6);
-  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
-  return `${monday.toLocaleDateString("en-AU", opts)} — ${sunday.toLocaleDateString("en-AU", opts)} ${monday.getFullYear()}`;
+interface SessionSlot {
+  date: string;
+  sessionId: string;
+  startTime: string;
+  endTime: string;
+  squadNames: string[];
 }
 
 export default function CoachesPage() {
   const { activeProgram, isAdmin } = useProgram();
   const supabase = createClient();
   const [currentUserId, setCurrentUserId] = useState<string>();
-  const [weekOffset, setWeekOffset] = useState(0);
   const [editingCoach, setEditingCoach] = useState<ProgramMember | null>(null);
-  const [viewMode, setViewMode] = useState<"week" | "month">("week");
+  const [sessions, setSessions] = useState<SessionSlot[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<"upcoming" | "all">("upcoming");
 
-  // Calculate date range based on offset
-  const { monday, dates, dateRange } = useMemo(() => {
-    const today = new Date();
-    const baseMonday = getMonday(today);
-    baseMonday.setDate(baseMonday.getDate() + weekOffset * 7);
+  // Fetch sessions for the program
+  const fetchSessions = useCallback(async () => {
+    if (!activeProgram?.id) return;
+    setSessionsLoading(true);
 
-    const weekDates = viewMode === "month"
-      ? (() => {
-          // Show 4 weeks for month view
-          const allDates: string[] = [];
-          for (let w = 0; w < 4; w++) {
-            const m = new Date(baseMonday);
-            m.setDate(m.getDate() + w * 7);
-            allDates.push(...getWeekDates(m));
-          }
-          return allDates;
-        })()
-      : getWeekDates(baseMonday);
+    const [sessRes, squadRes] = await Promise.all([
+      supabase
+        .from("sp_sessions")
+        .select("id, date, start_time, end_time, squad_ids, status")
+        .eq("program_id", activeProgram.id)
+        .order("date")
+        .order("start_time"),
+      supabase
+        .from("sp_squads")
+        .select("id, name")
+        .eq("program_id", activeProgram.id),
+    ]);
 
-    return {
-      monday: baseMonday,
-      dates: weekDates,
-      dateRange: {
-        start: weekDates[0],
-        end: weekDates[weekDates.length - 1],
-      },
-    };
-  }, [weekOffset, viewMode]);
+    const squads = (squadRes.data || []) as { id: string; name: string }[];
+    const squadMap = Object.fromEntries(squads.map((s) => [s.id, s.name]));
+
+    const slots: SessionSlot[] = ((sessRes.data || []) as Session[]).map((s) => ({
+      date: s.date,
+      sessionId: s.id,
+      startTime: s.start_time,
+      endTime: s.end_time,
+      squadNames: (s.squad_ids || []).map((id) => squadMap[id] || "").filter(Boolean),
+    }));
+
+    setSessions(slots);
+    setSessionsLoading(false);
+  }, [supabase, activeProgram?.id]);
+
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // Filter sessions based on view mode
+  const filteredSessions = useMemo(() => {
+    if (viewMode === "all") return sessions;
+    const today = new Date().toISOString().split("T")[0];
+    return sessions.filter((s) => s.date >= today);
+  }, [sessions, viewMode]);
+
+  // Get session IDs for availability fetch
+  const sessionIds = useMemo(
+    () => filteredSessions.map((s) => s.sessionId),
+    [filteredSessions]
+  );
 
   const {
     coaches,
     availability,
-    loading,
+    loading: coachesLoading,
     setCoachAvailability,
     updateCoachProfile,
   } = useCoaches({
     programId: activeProgram?.id,
-    dateRange,
+    sessionIds,
   });
 
   // Get current user ID
@@ -92,16 +93,18 @@ export default function CoachesPage() {
     });
   }, [supabase]);
 
-  const handleSetAvailability = async (userId: string, date: string, status: AvailabilityStatus) => {
-    await setCoachAvailability(userId, date, status);
+  const handleSetAvailability = async (userId: string, sessionId: string, status: AvailabilityStatus) => {
+    await setCoachAvailability(userId, sessionId, status);
   };
+
+  const loading = sessionsLoading || coachesLoading;
 
   // Summary stats
   const totalCoaches = coaches.length;
-  const todayStr = new Date().toISOString().split("T")[0];
-  const availableToday = availability.filter(
-    (a) => a.date === todayStr && a.status === "available"
-  ).length;
+  const nextSession = filteredSessions[0];
+  const nextSessionAvailable = nextSession
+    ? availability.filter((a) => a.session_id === nextSession.sessionId && a.status === "available").length
+    : 0;
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 py-6">
@@ -110,7 +113,7 @@ export default function CoachesPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Coaches</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Manage your coaching team and track availability
+            Manage your coaching team and track availability across sessions
           </p>
         </div>
 
@@ -120,7 +123,12 @@ export default function CoachesPage() {
             {totalCoaches} Coaches
           </div>
           <div className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-sm font-medium">
-            {availableToday} Available Today
+            {nextSession
+              ? `${nextSessionAvailable} Available Next Session`
+              : "No Upcoming Sessions"}
+          </div>
+          <div className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-sm font-medium">
+            {filteredSessions.length} Sessions
           </div>
         </div>
       </div>
@@ -128,55 +136,30 @@ export default function CoachesPage() {
       {/* Controls */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-          {/* Week navigation */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setWeekOffset((w) => w - (viewMode === "month" ? 4 : 1))}
-              className="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-500"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-
-            <button
-              onClick={() => setWeekOffset(0)}
-              className="px-3 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
-            >
-              Today
-            </button>
-
-            <button
-              onClick={() => setWeekOffset((w) => w + (viewMode === "month" ? 4 : 1))}
-              className="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-500"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-
-            <span className="text-sm font-medium text-gray-700 ml-2">
-              {formatWeekRange(monday)}
-            </span>
+          <div className="text-sm font-medium text-gray-700">
+            {viewMode === "upcoming" ? "Upcoming Sessions" : "All Program Sessions"}
+            {activeProgram && (
+              <span className="text-gray-400 ml-2 font-normal">— {activeProgram.name}</span>
+            )}
           </div>
 
           {/* View toggle */}
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
             <button
-              onClick={() => { setViewMode("week"); setWeekOffset(0); }}
+              onClick={() => setViewMode("upcoming")}
               className={`px-3 py-1 text-xs font-medium rounded-md transition ${
-                viewMode === "week" ? "bg-white shadow text-gray-900" : "text-gray-500"
+                viewMode === "upcoming" ? "bg-white shadow text-gray-900" : "text-gray-500"
               }`}
             >
-              Week
+              Upcoming
             </button>
             <button
-              onClick={() => { setViewMode("month"); setWeekOffset(0); }}
+              onClick={() => setViewMode("all")}
               className={`px-3 py-1 text-xs font-medium rounded-md transition ${
-                viewMode === "month" ? "bg-white shadow text-gray-900" : "text-gray-500"
+                viewMode === "all" ? "bg-white shadow text-gray-900" : "text-gray-500"
               }`}
             >
-              Month
+              All Sessions
             </button>
           </div>
         </div>
@@ -214,11 +197,16 @@ export default function CoachesPage() {
             </svg>
             Loading coaches...
           </div>
+        ) : filteredSessions.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <p className="text-lg font-medium">No {viewMode === "upcoming" ? "upcoming " : ""}sessions found</p>
+            <p className="text-sm mt-1">Create sessions in the Month view to track coach availability</p>
+          </div>
         ) : (
           <CoachRosterTable
             coaches={coaches}
             availability={availability}
-            dates={dates}
+            sessions={filteredSessions}
             onEditCoach={setEditingCoach}
             onSetAvailability={handleSetAvailability}
             currentUserId={currentUserId}

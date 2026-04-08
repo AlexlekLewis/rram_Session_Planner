@@ -16,10 +16,9 @@ interface SessionSlot {
 interface CoachRosterTableProps {
   coaches: ProgramMember[];
   availability: CoachAvailability[];
-  dates: string[];
   sessions: SessionSlot[];
   onEditCoach: (coach: ProgramMember) => void;
-  onSetAvailability: (userId: string, date: string, status: AvailabilityStatus) => void;
+  onSetAvailability: (userId: string, sessionId: string, status: AvailabilityStatus) => void;
   currentUserId?: string;
   isAdmin: boolean;
 }
@@ -54,13 +53,13 @@ function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.toLocaleDateString("en-AU", { weekday: "short" });
   const num = d.getDate();
-  return `${day} ${num}`;
+  const month = d.toLocaleDateString("en-AU", { month: "short" });
+  return `${day} ${num} ${month}`;
 }
 
 export function CoachRosterTable({
   coaches,
   availability,
-  dates,
   sessions,
   onEditCoach,
   onSetAvailability,
@@ -69,53 +68,85 @@ export function CoachRosterTable({
 }: CoachRosterTableProps) {
   const [hoveredCell, setHoveredCell] = useState<string | null>(null);
 
-  function getAvailability(userId: string, date: string): AvailabilityStatus | null {
-    const record = availability.find((a) => a.user_id === userId && a.date === date);
+  function getAvailability(userId: string, sessionId: string): AvailabilityStatus | null {
+    const record = availability.find((a) => a.user_id === userId && a.session_id === sessionId);
     return record?.status ?? null;
   }
 
-  function cycleStatus(userId: string, date: string) {
-    const current = getAvailability(userId, date);
+  function cycleStatus(userId: string, sessionId: string) {
+    const current = getAvailability(userId, sessionId);
     const canEdit = isAdmin || userId === currentUserId;
     if (!canEdit) return;
 
     const currentIdx = current ? STATUS_CYCLE.indexOf(current) : -1;
     const nextStatus = STATUS_CYCLE[(currentIdx + 1) % STATUS_CYCLE.length];
-    onSetAvailability(userId, date, nextStatus);
+    onSetAvailability(userId, sessionId, nextStatus);
+  }
+
+  // Group sessions by date for visual separators in the header
+  const dateGroups: { date: string; sessions: SessionSlot[] }[] = [];
+  for (const session of sessions) {
+    const last = dateGroups[dateGroups.length - 1];
+    if (last && last.date === session.date) {
+      last.sessions.push(session);
+    } else {
+      dateGroups.push({ date: session.date, sessions: [session] });
+    }
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200">
-            <th className="text-left py-3 px-4 font-semibold text-gray-700 sticky left-0 bg-white z-10 min-w-[200px]">
-              Coach
-            </th>
-            <th className="text-left py-3 px-3 font-semibold text-gray-700 min-w-[100px]">
-              Role
-            </th>
-            <th className="text-left py-3 px-3 font-semibold text-gray-700 min-w-[120px]">
-              Speciality
-            </th>
-            {sessions.map((session) => (
+          {/* Date grouping row */}
+          <tr className="border-b border-gray-100">
+            <th colSpan={3} className="sticky left-0 bg-white z-10" />
+            {dateGroups.map((group) => (
               <th
-                key={session.sessionId}
-                className="text-center py-2 px-1 font-medium text-gray-500 min-w-[72px]"
+                key={group.date}
+                colSpan={group.sessions.length}
+                className="text-center py-2 px-1 font-semibold text-gray-700 text-[11px] border-l border-gray-200 first:border-l-0"
               >
-                <div className="text-[10px] leading-tight font-semibold text-gray-700">
-                  {formatDate(session.date)}
-                </div>
-                <div className="text-[9px] leading-tight text-gray-400 mt-0.5">
-                  {formatTimeShort(session.startTime)}–{formatTimeShort(session.endTime)}
-                </div>
-                {session.squadNames.length > 0 && (
-                  <div className="text-[8px] leading-tight text-rr-blue/70 mt-0.5 truncate max-w-[68px] mx-auto" title={session.squadNames.join(", ")}>
-                    {session.squadNames.join(", ")}
-                  </div>
-                )}
+                {formatDate(group.date)}
               </th>
             ))}
+          </tr>
+          {/* Session detail row */}
+          <tr className="border-b border-gray-200">
+            <th className="text-left py-2 px-4 font-semibold text-gray-700 sticky left-0 bg-white z-10 min-w-[200px]">
+              Coach
+            </th>
+            <th className="text-left py-2 px-3 font-semibold text-gray-700 min-w-[100px]">
+              Role
+            </th>
+            <th className="text-left py-2 px-3 font-semibold text-gray-700 min-w-[120px]">
+              Speciality
+            </th>
+            {sessions.map((session, idx) => {
+              // Add left border on first session of each new date
+              const isFirstOfDate = idx === 0 || sessions[idx - 1].date !== session.date;
+              return (
+                <th
+                  key={session.sessionId}
+                  className={cn(
+                    "text-center py-2 px-1 font-medium text-gray-500 min-w-[72px]",
+                    isFirstOfDate && idx > 0 && "border-l border-gray-200"
+                  )}
+                >
+                  <div className="text-[9px] leading-tight text-gray-600 font-semibold">
+                    {formatTimeShort(session.startTime)}–{formatTimeShort(session.endTime)}
+                  </div>
+                  {session.squadNames.length > 0 && (
+                    <div
+                      className="text-[8px] leading-tight text-rr-blue/70 mt-0.5 truncate max-w-[68px] mx-auto"
+                      title={session.squadNames.join(", ")}
+                    >
+                      {session.squadNames.join(", ")}
+                    </div>
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -166,15 +197,22 @@ export function CoachRosterTable({
                 </td>
 
                 {/* Availability cells */}
-                {sessions.map((session) => {
-                  const status = getAvailability(coach.user_id, session.date);
+                {sessions.map((session, idx) => {
+                  const status = getAvailability(coach.user_id, session.sessionId);
                   const cellKey = `${coach.user_id}-${session.sessionId}`;
                   const isHovered = hoveredCell === cellKey;
+                  const isFirstOfDate = idx === 0 || sessions[idx - 1].date !== session.date;
 
                   return (
-                    <td key={session.sessionId} className="py-3 px-1 text-center">
+                    <td
+                      key={session.sessionId}
+                      className={cn(
+                        "py-3 px-1 text-center",
+                        isFirstOfDate && idx > 0 && "border-l border-gray-200"
+                      )}
+                    >
                       <button
-                        onClick={() => cycleStatus(coach.user_id, session.date)}
+                        onClick={() => cycleStatus(coach.user_id, session.sessionId)}
                         onMouseEnter={() => setHoveredCell(cellKey)}
                         onMouseLeave={() => setHoveredCell(null)}
                         disabled={!canEdit}

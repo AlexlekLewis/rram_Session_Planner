@@ -367,7 +367,7 @@ export const ASSISTANT_TOOLS = [
   },
   {
     name: "set_coach_availability",
-    description: "Set a coach's availability for a specific date. Use when someone says 'I'm available Tuesday', 'Mark Sarah as unavailable on the 15th', or 'Set all coaches available for next week'.",
+    description: "Set a coach's availability for a specific session. Sessions are identified by date and optionally time range. Use when someone says 'I'm available Tuesday 5-7pm', 'Mark Sarah as unavailable for the 7pm session', or 'I can do the early session but not the late one'.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -378,6 +378,10 @@ export const ASSISTANT_TOOLS = [
         date: {
           type: "string",
           description: "Date in YYYY-MM-DD format",
+        },
+        start_time: {
+          type: "string",
+          description: "Optional session start time in HH:MM format (e.g., '17:00') to target a specific session when multiple exist on the same date. If omitted, sets for all sessions on that date.",
         },
         status: {
           type: "string",

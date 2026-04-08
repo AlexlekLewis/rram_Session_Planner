@@ -185,6 +185,7 @@ export type AvailabilityStatus = "available" | "unavailable" | "tentative";
 export interface CoachAvailability {
   id: string;
   program_id: string;
+  session_id: string;
   user_id: string;
   date: string;
   status: AvailabilityStatus;

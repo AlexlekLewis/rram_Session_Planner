@@ -58,10 +58,9 @@ export default function SessionPage() {
   const isAdmin = role === "head_coach";
 
   // Coach availability & rostering for this session
-  const [sessionDate, setSessionDate] = useState<string | undefined>();
   const coachData = useCoaches({
     programId: session?.program_id,
-    dateRange: sessionDate ? { start: sessionDate, end: sessionDate } : undefined,
+    sessionIds: sessionId ? [sessionId] : undefined,
     sessionId,
   });
 
@@ -120,7 +119,6 @@ export default function SessionPage() {
         ]);
         if (sessionRes.error) throw sessionRes.error;
         setSession(sessionRes.data as Session);
-        setSessionDate(sessionRes.data?.date);
         setTheme(sessionRes.data?.theme || "");
         if (blocksRes.error) throw blocksRes.error;
         blockManager.setBlocks((blocksRes.data || []) as SessionBlock[]);
@@ -438,7 +436,7 @@ export default function SessionPage() {
                     sessionCoaches={coachData.sessionCoaches}
                     availability={coachData.coaches.map((c) => ({
                       userId: c.user_id,
-                      status: coachData.getCoachAvailabilityForDate(c.user_id, session.date) as AvailabilityStatus | null,
+                      status: coachData.getCoachAvailabilityForSession(c.user_id, sessionId) as AvailabilityStatus | null,
                     }))}
                     onRoster={(userId) => coachData.rosterCoach(sessionId, userId)}
                     onUnroster={(userId) => coachData.unrosterCoach(sessionId, userId)}
