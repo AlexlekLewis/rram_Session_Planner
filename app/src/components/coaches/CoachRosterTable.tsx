@@ -3,11 +3,21 @@
 import { useState } from "react";
 import { ProgramMember, CoachAvailability, AvailabilityStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { formatTimeShort } from "@/lib/constants";
+
+interface SessionSlot {
+  date: string;
+  sessionId: string;
+  startTime: string;
+  endTime: string;
+  squadNames: string[];
+}
 
 interface CoachRosterTableProps {
   coaches: ProgramMember[];
   availability: CoachAvailability[];
   dates: string[];
+  sessions: SessionSlot[];
   onEditCoach: (coach: ProgramMember) => void;
   onSetAvailability: (userId: string, date: string, status: AvailabilityStatus) => void;
   currentUserId?: string;
@@ -51,6 +61,7 @@ export function CoachRosterTable({
   coaches,
   availability,
   dates,
+  sessions,
   onEditCoach,
   onSetAvailability,
   currentUserId,
@@ -87,12 +98,22 @@ export function CoachRosterTable({
             <th className="text-left py-3 px-3 font-semibold text-gray-700 min-w-[120px]">
               Speciality
             </th>
-            {dates.map((date) => (
+            {sessions.map((session) => (
               <th
-                key={date}
-                className="text-center py-3 px-1 font-medium text-gray-500 min-w-[56px]"
+                key={session.sessionId}
+                className="text-center py-2 px-1 font-medium text-gray-500 min-w-[72px]"
               >
-                <div className="text-[10px] leading-tight">{formatDate(date)}</div>
+                <div className="text-[10px] leading-tight font-semibold text-gray-700">
+                  {formatDate(session.date)}
+                </div>
+                <div className="text-[9px] leading-tight text-gray-400 mt-0.5">
+                  {formatTimeShort(session.startTime)}–{formatTimeShort(session.endTime)}
+                </div>
+                {session.squadNames.length > 0 && (
+                  <div className="text-[8px] leading-tight text-rr-blue/70 mt-0.5 truncate max-w-[68px] mx-auto" title={session.squadNames.join(", ")}>
+                    {session.squadNames.join(", ")}
+                  </div>
+                )}
               </th>
             ))}
           </tr>
@@ -145,15 +166,15 @@ export function CoachRosterTable({
                 </td>
 
                 {/* Availability cells */}
-                {dates.map((date) => {
-                  const status = getAvailability(coach.user_id, date);
-                  const cellKey = `${coach.user_id}-${date}`;
+                {sessions.map((session) => {
+                  const status = getAvailability(coach.user_id, session.date);
+                  const cellKey = `${coach.user_id}-${session.sessionId}`;
                   const isHovered = hoveredCell === cellKey;
 
                   return (
-                    <td key={date} className="py-3 px-1 text-center">
+                    <td key={session.sessionId} className="py-3 px-1 text-center">
                       <button
-                        onClick={() => cycleStatus(coach.user_id, date)}
+                        onClick={() => cycleStatus(coach.user_id, session.date)}
                         onMouseEnter={() => setHoveredCell(cellKey)}
                         onMouseLeave={() => setHoveredCell(null)}
                         disabled={!canEdit}
