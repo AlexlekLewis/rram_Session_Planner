@@ -6,13 +6,18 @@ import { Program, Phase, Squad, Coach, Player } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Plus, Pencil, Trash2, Save } from "lucide-react";
 import { PlayersTab } from "@/components/settings/PlayersTab";
+import { MembersTab } from "@/components/settings/MembersTab";
+import { CreateProgramWizard } from "@/components/program/CreateProgramWizard";
+import { useProgram } from "@/lib/program-context";
 
-type Tab = "program" | "squads" | "coaches" | "players";
+type Tab = "program" | "squads" | "coaches" | "players" | "members";
 
 export default function SettingsPage() {
   const supabase = createClient();
+  const { isAdmin } = useProgram();
   const [activeTab, setActiveTab] = useState<Tab>("program");
   const [loading, setLoading] = useState(true);
+  const [showCreateProgram, setShowCreateProgram] = useState(false);
 
   // Data
   const [program, setProgram] = useState<Program | null>(null);
@@ -57,16 +62,29 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold text-rr-charcoal dark:text-white font-montserrat mb-1">
-        Settings
-      </h1>
+      <div className="flex items-center justify-between mb-1">
+        <h1 className="text-2xl font-bold text-rr-charcoal dark:text-white font-montserrat">
+          Settings
+        </h1>
+        {isAdmin && (
+          <button
+            onClick={() => setShowCreateProgram(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-rr-blue text-white rounded-lg hover:bg-rr-blue/90 transition"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New Program
+          </button>
+        )}
+      </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
         Program, squad, player, and coach management
       </p>
 
+      <CreateProgramWizard isOpen={showCreateProgram} onClose={() => setShowCreateProgram(false)} />
+
       {/* Tab Navigation */}
       <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-        {(["program", "squads", "players", "coaches"] as Tab[]).map((tab) => (
+        {(["program", "squads", "players", "coaches", "members"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -94,6 +112,9 @@ export default function SettingsPage() {
       )}
       {activeTab === "coaches" && (
         <CoachesTab coaches={coaches} setCoaches={setCoaches} supabase={supabase} />
+      )}
+      {activeTab === "members" && (
+        <MembersTab />
       )}
     </div>
   );

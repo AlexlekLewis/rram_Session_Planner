@@ -14,14 +14,18 @@ interface UserRoleState {
   isLoading: boolean;
 }
 
-// Admin emails that always get head_coach access
-const ADMIN_EMAILS = [
-  "alex.lewis@rramelbourne.com",
-  "alex.lewis@rradna.app",
-  "alexleklewis@gmail.com",
-];
-
-export function useUserRole(): UserRoleState {
+/**
+ * useUserRole — resolves the current user's role.
+ *
+ * Resolution order:
+ * 1. If programId is provided, look up sp_program_members for that program
+ * 2. Fall back to sp_coaches (legacy, pre-multi-program)
+ * 3. Default to "player" if no records found
+ *
+ * The programId parameter is optional for backward compatibility.
+ * When ProgramProvider is wired in, pass activeProgram.id here.
+ */
+export function useUserRole(programId?: string): UserRoleState {
   const [state, setState] = useState<UserRoleState>({
     role: "player",
     isAdmin: false,
@@ -45,21 +49,33 @@ export function useUserRole(): UserRoleState {
 
         const email = user.email;
 
-        // Check if admin email
-        if (ADMIN_EMAILS.includes(email.toLowerCase())) {
-          setState({
-            role: "head_coach",
-            isAdmin: true,
-            isCoach: true,
-            isPlayer: false,
-            userName: "Alex Lewis",
-            userEmail: email,
-            isLoading: false,
-          });
-          return;
+        // Strategy 1: Program-scoped lookup (if programId provided)
+        if (programId) {
+          const { data: membership } = await supabase
+            .from("sp_program_members")
+            .select("role")
+            .eq("user_id", user.id)
+            .eq("program_id", programId)
+            .eq("status", "active")
+            .single();
+
+          if (membership) {
+            const role = membership.role as UserRole;
+            setState({
+              role,
+              isAdmin: role === "head_coach",
+              isCoach: role !== "player",
+              isPlayer: role === "player",
+              userName: email.split("@")[0],
+              userEmail: email,
+              isLoading: false,
+            });
+            return;
+          }
+          // If no program membership, fall through to legacy
         }
 
-        // Try to match against sp_coaches by email or user_id
+        // Strategy 2: Legacy sp_coaches lookup
         const { data: coach } = await supabase
           .from("sp_coaches")
           .select("name, role")
@@ -96,7 +112,7 @@ export function useUserRole(): UserRoleState {
     };
 
     fetchRole();
-  }, []);
+  }, [programId]);
 
   return state;
 }

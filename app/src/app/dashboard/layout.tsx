@@ -7,12 +7,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
-import { useUserRole } from "@/hooks/useUserRole";
+import { ProgramProvider, useProgram } from "@/lib/program-context";
 import { UserRole, Program, Phase, Session, Activity, Squad } from "@/lib/types";
 import { AssistantPanel } from "@/components/ai-assistant/AssistantPanel";
 import { AssistantSessionProvider, useAssistantSessionContext } from "@/lib/assistant-session-context";
 import { useAssistant } from "@/hooks/useAssistant";
-import { Sparkles } from "lucide-react";
+import { Sparkles, ChevronDown } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -34,14 +34,33 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  return (
+    <ProgramProvider>
+      <DashboardLayoutInner>{children}</DashboardLayoutInner>
+    </ProgramProvider>
+  );
+}
+
+function DashboardLayoutInner({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
-  const { role, isAdmin } = useUserRole();
+  const {
+    activeProgram,
+    programs,
+    role,
+    isAdmin,
+    isCoach,
+    setActiveProgram,
+  } = useProgram();
   const [userEmail, setUserEmail] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
 
-  // Global data for AI Coach context
+  // Global data for AI Coach context — scoped to active program
   const [program, setProgram] = useState<Program | null>(null);
   const [phases, setPhases] = useState<Phase[]>([]);
   const [allSessions, setAllSessions] = useState<Session[]>([]);
@@ -54,25 +73,27 @@ export default function DashboardLayout({
     });
   }, [supabase]);
 
-  // Fetch global program data for AI Coach
+  // Fetch program data scoped to active program
   const fetchGlobalData = useCallback(async () => {
-    const [progRes, phaseRes, sessRes, actRes, squadRes] = await Promise.all([
-      supabase.from("sp_programs").select("*").single(),
-      supabase.from("sp_phases").select("*").order("sort_order"),
-      supabase.from("sp_sessions").select("*").order("date"),
-      supabase.from("sp_activities").select("*").eq("is_global", true).order("name"),
-      supabase.from("sp_squads").select("*").order("name"),
+    if (!activeProgram) return;
+
+    const programId = activeProgram.id;
+    const [phaseRes, sessRes, actRes, squadRes] = await Promise.all([
+      supabase.from("sp_phases").select("*").eq("program_id", programId).order("sort_order"),
+      supabase.from("sp_sessions").select("*").eq("program_id", programId).order("date"),
+      supabase.from("sp_activities").select("*").or(`program_id.is.null,program_id.eq.${programId}`).order("name"),
+      supabase.from("sp_squads").select("*").eq("program_id", programId).order("name"),
     ]);
-    if (progRes.data) setProgram(progRes.data as Program);
+    setProgram(activeProgram);
     setPhases((phaseRes.data || []) as Phase[]);
     setAllSessions((sessRes.data || []) as Session[]);
     setAllActivities((actRes.data || []) as Activity[]);
     setGlobalSquads((squadRes.data || []) as Squad[]);
-  }, [supabase]);
+  }, [supabase, activeProgram]);
 
   useEffect(() => { fetchGlobalData(); }, [fetchGlobalData]);
 
-  const canUseAssistant = role === "head_coach" || role === "assistant_coach";
+  const canUseAssistant = isCoach;
 
   // Filter nav items by role
   const visibleNavItems = useMemo(() => {
@@ -101,6 +122,24 @@ export default function DashboardLayout({
                 Session Planner
               </span>
             </Link>
+
+            {/* Program Switcher — only show if user has multiple programs */}
+            {programs.length > 1 && (
+              <div className="relative">
+                <select
+                  value={activeProgram?.id ?? ""}
+                  onChange={(e) => setActiveProgram(e.target.value)}
+                  className="appearance-none bg-gray-100 dark:bg-gray-800 text-xs font-medium px-2 py-1.5 pr-6 rounded-lg border border-gray-200 dark:border-gray-700 text-rr-charcoal dark:text-gray-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-rr-blue/50"
+                >
+                  {programs.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+              </div>
+            )}
 
             <nav className="flex items-center gap-1">
               {visibleNavItems.map((item) => {

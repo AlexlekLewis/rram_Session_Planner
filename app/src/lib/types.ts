@@ -161,6 +161,34 @@ export interface Coach {
   created_at: string;
 }
 
+export type ProgramMemberStatus = "invited" | "active" | "inactive";
+
+export interface ProgramMember {
+  id: string;
+  program_id: string;
+  user_id: string;
+  role: UserRole;
+  invited_by?: string;
+  invited_at: string;
+  accepted_at?: string;
+  status: ProgramMemberStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProgramInvite {
+  id: string;
+  program_id: string;
+  token: string;
+  email?: string;
+  role: UserRole;
+  invited_by: string;
+  accepted_by?: string;
+  accepted_at?: string;
+  expires_at: string;
+  created_at: string;
+}
+
 export interface Session {
   id: string;
   program_id: string;
