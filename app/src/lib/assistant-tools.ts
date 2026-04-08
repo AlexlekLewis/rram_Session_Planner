@@ -348,6 +348,143 @@ export const ASSISTANT_TOOLS = [
       required: ["knowledge_id"],
     },
   },
+  // ============================================================================
+  // Coach Management Tools
+  // ============================================================================
+  {
+    name: "list_coaches",
+    description: "List all coaches in the current program with their roles, specialities, and availability. Use when the coach asks 'who are my coaches', 'show the coaching team', or 'who's available'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: {
+          type: "string",
+          description: "Optional date (YYYY-MM-DD) to check availability for. If not provided, shows coaches without availability info.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "set_coach_availability",
+    description: "Set a coach's availability for a specific date. Use when someone says 'I'm available Tuesday', 'Mark Sarah as unavailable on the 15th', or 'Set all coaches available for next week'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        coach_name: {
+          type: "string",
+          description: "Display name of the coach (e.g., 'Sarah Mitchell', 'Alex Lewis'). Use 'me' or the current user's name for self.",
+        },
+        date: {
+          type: "string",
+          description: "Date in YYYY-MM-DD format",
+        },
+        status: {
+          type: "string",
+          description: "Availability status",
+          enum: ["available", "unavailable", "tentative"],
+        },
+        notes: {
+          type: "string",
+          description: "Optional notes (e.g., 'arriving late', 'can only do first hour')",
+        },
+      },
+      required: ["coach_name", "date", "status"],
+    },
+  },
+  {
+    name: "roster_coach",
+    description: "Add a coach to a session's roster. Use when someone says 'add Jarryd to Tuesday's session', 'roster Matt for the 15th', or 'I'll be at the session'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        coach_name: {
+          type: "string",
+          description: "Display name of the coach to roster",
+        },
+        session_date: {
+          type: "string",
+          description: "Date of the session (YYYY-MM-DD). If multiple sessions on the same date, uses the first one.",
+        },
+        session_id: {
+          type: "string",
+          description: "Optional specific session UUID. Use this instead of session_date when you know the exact session.",
+        },
+        role: {
+          type: "string",
+          description: "Coach's role for this session",
+          enum: ["head_coach", "assistant_coach", "guest_coach"],
+        },
+      },
+      required: ["coach_name"],
+    },
+  },
+  {
+    name: "unroster_coach",
+    description: "Remove a coach from a session's roster. Use when someone says 'remove Sarah from Tuesday's session' or 'I can't make it to the session'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        coach_name: {
+          type: "string",
+          description: "Display name of the coach to remove",
+        },
+        session_date: {
+          type: "string",
+          description: "Date of the session (YYYY-MM-DD)",
+        },
+        session_id: {
+          type: "string",
+          description: "Optional specific session UUID",
+        },
+      },
+      required: ["coach_name"],
+    },
+  },
+  {
+    name: "update_coach_profile",
+    description: "Update a coach's profile information. Use when someone says 'change Sarah's speciality to batting', 'update my phone number', or 'set Matt's display name'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        coach_name: {
+          type: "string",
+          description: "Current display name of the coach to update",
+        },
+        display_name: {
+          type: "string",
+          description: "New display name",
+        },
+        phone: {
+          type: "string",
+          description: "Phone number",
+        },
+        speciality: {
+          type: "string",
+          description: "Coaching speciality (e.g., 'Batting', 'Pace Bowling', 'Fielding & Wicketkeeping')",
+        },
+      },
+      required: ["coach_name"],
+    },
+  },
+  {
+    name: "get_session_roster",
+    description: "Get the list of coaches rostered to a specific session, with their availability status. Use when someone asks 'who's coaching on Tuesday' or 'which coaches are on for the next session'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        session_date: {
+          type: "string",
+          description: "Date of the session (YYYY-MM-DD)",
+        },
+        session_id: {
+          type: "string",
+          description: "Optional specific session UUID",
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**

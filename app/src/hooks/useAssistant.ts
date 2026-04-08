@@ -299,6 +299,20 @@ export function useAssistant({
         return `Recall: ${input.query || input.category || "all memories"}`;
       case "forget":
         return `Forget knowledge entry`;
+      case "list_coaches":
+        return `List coaches${input.date ? ` (availability for ${input.date})` : ""}`;
+      case "set_coach_availability":
+        return `Set ${input.coach_name} as ${input.status} on ${input.date}`;
+      case "roster_coach":
+        return `Roster ${input.coach_name} to session${input.session_date ? ` on ${input.session_date}` : ""}`;
+      case "unroster_coach":
+        return `Remove ${input.coach_name} from session${input.session_date ? ` on ${input.session_date}` : ""}`;
+      case "update_coach_profile": {
+        const fields = [input.display_name && "name", input.phone && "phone", input.speciality && "speciality"].filter(Boolean).join(", ");
+        return `Update ${input.coach_name}'s profile: ${fields}`;
+      }
+      case "get_session_roster":
+        return `Get coaching roster${input.session_date ? ` for ${input.session_date}` : " for current session"}`;
       default:
         // Check if it's an admin tool
         if (toolName.startsWith("admin_")) {
@@ -631,6 +645,295 @@ export function useAssistant({
           }
         }
 
+        // ====================================================================
+        // Coach Management Tools
+        // ====================================================================
+        case "list_coaches": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            const { data: coaches, error } = await supabase
+              .from("sp_program_members")
+              .select("*")
+              .eq("program_id", programId)
+              .eq("status", "active")
+              .in("role", ["head_coach", "assistant_coach", "guest_coach"])
+              .order("role");
+            if (error) return `Failed: ${error.message}`;
+            if (!coaches || coaches.length === 0) return "No coaches found in this program.";
+
+            let availData: Record<string, string> = {};
+            if (input.date) {
+              const { data: avail } = await supabase
+                .from("sp_coach_availability")
+                .select("user_id, status")
+                .eq("program_id", programId)
+                .eq("date", input.date);
+              if (avail) {
+                availData = Object.fromEntries(avail.map((a: { user_id: string; status: string }) => [a.user_id, a.status]));
+              }
+            }
+
+            return coaches
+              .map((c: { display_name: string; role: string; speciality: string; user_id: string; phone: string }) => {
+                const avail = input.date ? (availData[c.user_id] || "not set") : "";
+                return `• ${c.display_name || "Unnamed"} — ${c.role.replace("_", " ")}${c.speciality ? ` (${c.speciality})` : ""}${c.phone ? ` | ${c.phone}` : ""}${avail ? ` | ${avail}` : ""}`;
+              })
+              .join("\n");
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "set_coach_availability": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            // Find coach by name
+            const { data: coaches } = await supabase
+              .from("sp_program_members")
+              .select("user_id, display_name")
+              .eq("program_id", programId)
+              .eq("status", "active")
+              .in("role", ["head_coach", "assistant_coach", "guest_coach"]);
+
+            const coach = coaches?.find((c: { display_name: string }) =>
+              c.display_name?.toLowerCase().includes(input.coach_name.toLowerCase())
+            );
+            if (!coach) return `Coach "${input.coach_name}" not found. Available coaches: ${coaches?.map((c: { display_name: string }) => c.display_name).join(", ")}`;
+
+            const { error } = await supabase
+              .from("sp_coach_availability")
+              .upsert(
+                { program_id: programId, user_id: coach.user_id, date: input.date, status: input.status, notes: input.notes || null },
+                { onConflict: "program_id,user_id,date" }
+              );
+            if (error) return `Failed: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "roster_coach": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            // Find coach
+            const { data: coaches } = await supabase
+              .from("sp_program_members")
+              .select("user_id, display_name")
+              .eq("program_id", programId)
+              .eq("status", "active")
+              .in("role", ["head_coach", "assistant_coach", "guest_coach"]);
+
+            const coach = coaches?.find((c: { display_name: string }) =>
+              c.display_name?.toLowerCase().includes(input.coach_name.toLowerCase())
+            );
+            if (!coach) return `Coach "${input.coach_name}" not found.`;
+
+            // Find session
+            let targetSessionId = input.session_id;
+            if (!targetSessionId && input.session_date) {
+              const { data: sessions } = await supabase
+                .from("sp_sessions")
+                .select("id")
+                .eq("program_id", programId)
+                .eq("date", input.session_date)
+                .limit(1);
+              targetSessionId = sessions?.[0]?.id;
+            }
+            if (!targetSessionId) {
+              // Fall back to active session
+              const active = getActiveSession();
+              targetSessionId = active?.sessionId;
+            }
+            if (!targetSessionId) return "No session found. Specify a session_date or navigate to a session.";
+
+            const { error } = await supabase
+              .from("sp_session_coaches")
+              .upsert(
+                { session_id: targetSessionId, user_id: coach.user_id, role: input.role || "assistant_coach" },
+                { onConflict: "session_id,user_id" }
+              );
+            if (error) return `Failed: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "unroster_coach": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            // Find coach
+            const { data: coaches } = await supabase
+              .from("sp_program_members")
+              .select("user_id, display_name")
+              .eq("program_id", programId)
+              .eq("status", "active")
+              .in("role", ["head_coach", "assistant_coach", "guest_coach"]);
+
+            const coach = coaches?.find((c: { display_name: string }) =>
+              c.display_name?.toLowerCase().includes(input.coach_name.toLowerCase())
+            );
+            if (!coach) return `Coach "${input.coach_name}" not found.`;
+
+            // Find session
+            let targetSessionId = input.session_id;
+            if (!targetSessionId && input.session_date) {
+              const { data: sessions } = await supabase
+                .from("sp_sessions")
+                .select("id")
+                .eq("program_id", programId)
+                .eq("date", input.session_date)
+                .limit(1);
+              targetSessionId = sessions?.[0]?.id;
+            }
+            if (!targetSessionId) {
+              const active = getActiveSession();
+              targetSessionId = active?.sessionId;
+            }
+            if (!targetSessionId) return "No session found.";
+
+            const { error } = await supabase
+              .from("sp_session_coaches")
+              .delete()
+              .eq("session_id", targetSessionId)
+              .eq("user_id", coach.user_id);
+            if (error) return `Failed: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "update_coach_profile": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            // Find coach
+            const { data: coaches } = await supabase
+              .from("sp_program_members")
+              .select("id, display_name")
+              .eq("program_id", programId)
+              .eq("status", "active")
+              .in("role", ["head_coach", "assistant_coach", "guest_coach"]);
+
+            const coach = coaches?.find((c: { display_name: string }) =>
+              c.display_name?.toLowerCase().includes(input.coach_name.toLowerCase())
+            );
+            if (!coach) return `Coach "${input.coach_name}" not found.`;
+
+            const updates: Record<string, string> = {};
+            if (input.display_name) updates.display_name = input.display_name;
+            if (input.phone) updates.phone = input.phone;
+            if (input.speciality) updates.speciality = input.speciality;
+
+            if (Object.keys(updates).length === 0) return "No updates provided.";
+
+            const { error } = await supabase
+              .from("sp_program_members")
+              .update(updates)
+              .eq("id", coach.id);
+            if (error) return `Failed: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "get_session_roster": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            // Find session
+            let targetSessionId = input.session_id;
+            let sessionDate = input.session_date;
+            if (!targetSessionId && sessionDate) {
+              const { data: sessions } = await supabase
+                .from("sp_sessions")
+                .select("id, date, start_time, end_time")
+                .eq("program_id", programId)
+                .eq("date", sessionDate)
+                .limit(1);
+              if (sessions?.[0]) {
+                targetSessionId = sessions[0].id;
+              }
+            }
+            if (!targetSessionId) {
+              const active = getActiveSession();
+              targetSessionId = active?.sessionId;
+              sessionDate = active?.session?.date;
+            }
+            if (!targetSessionId) return "No session found. Specify a session_date or navigate to a session.";
+
+            // Get rostered coaches
+            const { data: roster } = await supabase
+              .from("sp_session_coaches")
+              .select("user_id, role, confirmed")
+              .eq("session_id", targetSessionId);
+
+            // Get all coaches for names
+            const { data: coaches } = await supabase
+              .from("sp_program_members")
+              .select("user_id, display_name, speciality")
+              .eq("program_id", programId)
+              .eq("status", "active")
+              .in("role", ["head_coach", "assistant_coach", "guest_coach"]);
+
+            // Get availability for the date
+            let availData: Record<string, string> = {};
+            if (sessionDate) {
+              const { data: avail } = await supabase
+                .from("sp_coach_availability")
+                .select("user_id, status")
+                .eq("program_id", programId)
+                .eq("date", sessionDate);
+              if (avail) {
+                availData = Object.fromEntries(avail.map((a: { user_id: string; status: string }) => [a.user_id, a.status]));
+              }
+            }
+
+            const coachMap = Object.fromEntries(
+              (coaches || []).map((c: { user_id: string; display_name: string; speciality: string }) => [c.user_id, c])
+            );
+
+            if (!roster || roster.length === 0) {
+              const availCoaches = (coaches || [])
+                .map((c: { user_id: string; display_name: string }) => {
+                  const avail = availData[c.user_id] || "not set";
+                  return `  • ${c.display_name || "Unnamed"} — ${avail}`;
+                })
+                .join("\n");
+              return `No coaches rostered for this session.\n\nAvailable coaches:\n${availCoaches}`;
+            }
+
+            return roster
+              .map((r: { user_id: string; role: string; confirmed: boolean }) => {
+                const c = coachMap[r.user_id] || { display_name: "Unknown", speciality: "" };
+                const avail = availData[r.user_id] || "not set";
+                return `• ${c.display_name} — ${r.role.replace("_", " ")}${c.speciality ? ` (${c.speciality})` : ""} | availability: ${avail}${r.confirmed ? " ✓" : ""}`;
+              })
+              .join("\n");
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
         default: {
           // Check if it's an admin tool
           if (toolName.startsWith("admin_") && isAdmin) {
@@ -836,7 +1139,7 @@ export function useAssistant({
         // H2 fix: Auto-execute informational tools and get follow-up response
         const INFORMATIONAL_TOOLS = new Set([
           "recall", "search_activities", "get_session_summary", "list_sessions",
-          "get_knowledge_base",
+          "get_knowledge_base", "list_coaches", "get_session_roster",
         ]);
 
         if (data.stop_reason === "tool_use" && toolCalls.length > 0) {
