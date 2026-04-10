@@ -164,7 +164,7 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-4 py-3 pr-12 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rr-pink/30 focus:border-rr-pink transition bg-white dark:bg-gray-700 dark:text-white"
-                      placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                      placeholder="••••••••"
                       required
                     />
                     <button
