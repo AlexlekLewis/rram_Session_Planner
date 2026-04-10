@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
+import { getSiteUrl } from "@/lib/site-url";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -38,7 +39,7 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/login`,
+      redirectTo: `${getSiteUrl()}/reset-password`,
     });
     if (error) {
       setError(error.message);
@@ -55,7 +56,7 @@ export default function LoginPage() {
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/dashboard/month` },
+      options: { emailRedirectTo: `${getSiteUrl()}/dashboard/month` },
     });
     if (error) {
       setError(error.message);

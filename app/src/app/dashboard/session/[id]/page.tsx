@@ -383,7 +383,7 @@ export default function SessionPage() {
             </div>
             <div className="flex items-center gap-3">
               {/* Toolbar buttons — edit controls hidden for guest_coach and player */}
-              <ExportPdfButton session={session} blocks={blockManager.blocks} squads={sessionSquads} />
+              <ExportPdfButton variant="coach" session={session} blocks={blockManager.blocks} squads={sessionSquads} />
               {canEdit && (
                 <>
                   <button

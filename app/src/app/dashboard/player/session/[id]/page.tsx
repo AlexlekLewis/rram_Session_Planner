@@ -7,6 +7,7 @@ import { Session, SessionBlock, Squad } from "@/lib/types";
 import { formatTime } from "@/lib/constants";
 import { SquadBadge } from "@/components/shared/SquadBadge";
 import { ReadOnlyGrid } from "@/components/session-grid/ReadOnlyGrid";
+import { ExportPdfButton } from "@/components/shared/ExportPdfButton";
 
 interface SessionWithDetails extends Session {
   squads?: Squad[];
@@ -179,13 +180,19 @@ export default function PlayerSessionPage() {
               )}
             </div>
 
-            {/* Status badge */}
-            <div className="flex-shrink-0">
+            {/* Status badge + download button */}
+            <div className="flex-shrink-0 flex flex-col items-end gap-3">
               <span
                 className={`px-4 py-2 rounded-full text-sm font-semibold ${statusColor}`}
               >
                 {statusLabel}
               </span>
+              <ExportPdfButton
+                variant="player"
+                session={session}
+                blocks={blocks}
+                squads={session.squads || []}
+              />
             </div>
           </div>
 

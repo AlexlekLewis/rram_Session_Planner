@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getSiteUrl } from "@/lib/site-url";
 import { useProgram } from "@/lib/program-context";
 import { ProgramMember, ProgramInvite, UserRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -93,7 +94,7 @@ export function MembersTab() {
   };
 
   const handleCopyInviteLink = (token: string) => {
-    const link = `${window.location.origin}/invite/${token}`;
+    const link = `${getSiteUrl()}/invite/${token}`;
     navigator.clipboard.writeText(link);
     setCopiedToken(token);
     toast.success("Invite link copied!");
