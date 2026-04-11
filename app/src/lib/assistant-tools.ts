@@ -167,7 +167,20 @@ export const ASSISTANT_TOOLS = [
   },
   {
     name: "get_session_summary",
-    description: "Get a summary of the current session state. Use when the coach asks 'what have we got so far?' or 'show me the plan'.",
+    description: "Get a summary of the current session state. Use when the coach asks 'what have we got so far?' or 'show me the plan'. For a deeper structural critique (balance, warm-up, lane usage, tier distribution, issues), prefer `analyze_session` instead.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "analyze_session",
+    description:
+      "Run a full structural analysis of the active session and return concrete numbers (category share, tier distribution, warm-up/cool-down presence, lane utilisation, dead time, coach coverage, coaching-framework coverage) plus a prioritised list of issues with severity levels. " +
+      "USE THIS WHENEVER the coach asks 'what do you think of this session?', 'is this balanced?', 'does this look OK?', 'what's missing?', 'critique this', or before you push back on a session design. " +
+      "The anti-sycophancy rule from the RRA capability report REQUIRES you to cite specific numbers when pushing back on session design — this tool is how you get them. " +
+      "Do NOT guess category percentages or warm-up durations — call this tool instead, then quote the numbers verbatim.",
     input_schema: {
       type: "object" as const,
       properties: {},

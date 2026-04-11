@@ -5,6 +5,7 @@ import { Session, SessionBlock, Activity, Squad, Program, Phase, BlockCategory, 
 import { CATEGORY_COLOURS } from "@/lib/constants";
 import { buildSystemPrompt } from "@/lib/assistant-context";
 import { validateToolCall } from "@/lib/assistant-tools";
+import { analyzeSession, formatAnalysisForTool } from "@/lib/session-analysis";
 import { executeAdminAction, describeAdminAction, validateAdminToolCall } from "@/lib/admin-tools";
 import { createClient } from "@/lib/supabase/client";
 
@@ -277,6 +278,8 @@ export function useAssistant({
         return `Search activities: "${input.query || ""}" ${input.category ? `in ${input.category}` : ""}`;
       case "get_session_summary":
         return `Get session summary`;
+      case "analyze_session":
+        return `Analyse session: balance, warm-up, lane usage, tier mix, issues`;
       case "update_session": {
         const changes = Object.keys(input).filter(k => input[k] !== undefined).join(", ");
         return `Update session: ${changes}`;
@@ -332,7 +335,6 @@ export function useAssistant({
       // Read live session data from the ref-based context
       const active = getActiveSession();
       const sessionId = active?.sessionId;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const session = active?.session;
       const blocks = active?.blocks;
       const onAddBlock = active?.onAddBlock;
@@ -449,6 +451,25 @@ export function useAssistant({
           if (!blocks || blocks.length === 0) return "The session grid is empty.";
           const sorted = [...blocks].sort((a, b) => a.time_start.localeCompare(b.time_start));
           return `Session has ${blocks.length} blocks from ${sorted[0]?.time_start} to ${sorted[sorted.length - 1]?.time_end}.`;
+        }
+
+        case "analyze_session": {
+          // Structured deterministic critique — the model cites numbers from
+          // this payload instead of hand-waving. See session-analysis.ts and
+          // docs/AI_CAPABILITIES_REPORT.md V1 "Session balance feedback" +
+          // "Push back on poor session design".
+          if (!session) {
+            return "Navigate to a session first to analyse it — there's no active session on screen.";
+          }
+          const activePhase =
+            phases.find((p) => p.id === session.phase_id) || null;
+          const analysis = analyzeSession({
+            session,
+            blocks: blocks || [],
+            activities,
+            phase: activePhase,
+          });
+          return formatAnalysisForTool(analysis);
         }
 
         case "update_session": {
@@ -1167,8 +1188,8 @@ export function useAssistant({
 
         // H2 fix: Auto-execute informational tools and get follow-up response
         const INFORMATIONAL_TOOLS = new Set([
-          "recall", "search_activities", "get_session_summary", "list_sessions",
-          "list_coaches", "get_session_roster",
+          "recall", "search_activities", "get_session_summary", "analyze_session",
+          "list_sessions", "list_coaches", "get_session_roster",
         ]);
 
         if (data.stop_reason === "tool_use" && toolCalls.length > 0) {

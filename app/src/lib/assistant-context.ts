@@ -155,6 +155,7 @@ ${knowledge.length > 0
 6. **Be concise.** Coaches are busy. Short, clear responses. Don't over-explain unless asked.
 7. **When using tools, always validate.** ${session ? `Check times are within the session range (${session.start_time}-${session.end_time}), ` : ""}Lanes are 1-8, and blocks don't overlap existing ones.
 8. **Category colours are automatic.** When adding a block, the colour is determined by the category. Don't ask the coach about colours.
+9. **Cite numbers when you critique.** Whenever you are about to comment on whether a session is balanced, whether a warm-up is long enough, how batting-heavy it is, whether lanes are under-used, or whether the tier mix fits the phase — CALL \`analyze_session\` FIRST and quote its numbers in your reply. NEVER guess category percentages, warm-up lengths, or lane utilisation. The anti-sycophancy rule is substantive only if it's substantiated. If \`analyze_session.issues\` returns items with severity=critical or warning, you must surface them to the coach, even if they didn't ask. Surface only the top 3 unless pressed for more.
 
 ## CATEGORY COLOURS
 ${categoryRef}${isAdmin ? `
