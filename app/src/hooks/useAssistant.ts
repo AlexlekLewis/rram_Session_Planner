@@ -475,7 +475,7 @@ export function useAssistant({
 
         case "create_activity": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const { error } = await supabase.from("sp_activities").insert({
               name: input.name,
               category: input.category,
@@ -499,7 +499,7 @@ export function useAssistant({
         case "shift_program_dates": {
           try {
             if (!program) return "No program loaded.";
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const { error } = await supabase.rpc("shift_program_dates", {
               p_program_id: program.id,
               p_days: input.days,
@@ -515,7 +515,7 @@ export function useAssistant({
         case "update_program": {
           try {
             if (!program) return "No program loaded.";
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const updates: Record<string, string> = {};
             if (input.name) updates.name = input.name;
             if (input.start_date) updates.start_date = input.start_date;
@@ -532,7 +532,7 @@ export function useAssistant({
 
         case "update_phase": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const phase = phases.find((p) => p.name.toLowerCase() === input.phase_name.toLowerCase());
             if (!phase) return `Phase "${input.phase_name}" not found. Available: ${phases.map((p) => p.name).join(", ")}`;
             const updates: Record<string, unknown> = {};
@@ -552,7 +552,7 @@ export function useAssistant({
 
         case "create_session": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             // Resolve squad names to IDs
             const squadIds = (input.squad_names || [])
               .map((name: string) => squads.find((s) => s.name.toLowerCase() === name.toLowerCase())?.id)
@@ -588,7 +588,7 @@ export function useAssistant({
 
         case "remember": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             // Sanitize free-text fields on storage. These entries are later
             // injected back into the system prompt, so they are a prompt-
             // injection vector if stored verbatim. See sanitize-prompt.ts.
@@ -608,7 +608,7 @@ export function useAssistant({
 
         case "recall": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             let query = supabase.from("sp_coaching_knowledge").select("*").eq("is_active", true);
             if (input.category) query = query.eq("category", input.category);
             const { data, error } = await query.order("created_at", { ascending: false }).limit(20);
@@ -637,7 +637,7 @@ export function useAssistant({
 
         case "forget": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const { error } = await supabase
               .from("sp_coaching_knowledge")
               .update({ is_active: false })
@@ -654,7 +654,7 @@ export function useAssistant({
         // ====================================================================
         case "list_coaches": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const programId = program?.id;
             if (!programId) return "No active program.";
 
@@ -702,7 +702,7 @@ export function useAssistant({
 
         case "set_coach_availability": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const programId = program?.id;
             if (!programId) return "No active program.";
 
@@ -754,7 +754,7 @@ export function useAssistant({
 
         case "roster_coach": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const programId = program?.id;
             if (!programId) return "No active program.";
 
@@ -804,7 +804,7 @@ export function useAssistant({
 
         case "unroster_coach": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const programId = program?.id;
             if (!programId) return "No active program.";
 
@@ -852,7 +852,7 @@ export function useAssistant({
 
         case "update_coach_profile": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const programId = program?.id;
             if (!programId) return "No active program.";
 
@@ -889,7 +889,7 @@ export function useAssistant({
 
         case "get_session_roster": {
           try {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const programId = program?.id;
             if (!programId) return "No active program.";
 
@@ -970,7 +970,7 @@ export function useAssistant({
         default: {
           // Check if it's an admin tool
           if (toolName.startsWith("admin_") && isAdmin) {
-            const supabase = createClient();
+            const supabase = supabaseRef.current;
             const result = await executeAdminAction(toolName, input, supabase);
 
             // Audit log all admin actions
