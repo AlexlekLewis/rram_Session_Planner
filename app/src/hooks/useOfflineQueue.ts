@@ -134,6 +134,13 @@ export function useOfflineQueue() {
       // Sort by timestamp, process in order
       const sorted = queued.sort((a, b) => a.timestamp - b.timestamp)
 
+      // Collect any action that didn't fully persist so we can keep it in the
+      // IndexedDB queue for the next flush. Without this we'd silently drop
+      // the user's offline work when RLS blocks a write (Supabase returns
+      // `{ data: [], error: null }`, which looks like success but persisted
+      // nothing). Matches the .select() verification pattern in useAutoSave.ts.
+      let anyFailed = false
+
       for (const action of sorted) {
         try {
           if (action.type === "upsert" && action.blocks) {
@@ -142,7 +149,7 @@ export function useOfflineQueue() {
             // offline: the second flush would delete blocks the first flush
             // had just persisted. Matches the pattern used in useAutoSave.ts.
             if (action.blocks.length > 0) {
-              await supabase
+              const { data, error } = await supabase
                 .from("sp_session_blocks")
                 .upsert(
                   action.blocks.map((block) => ({
@@ -170,20 +177,38 @@ export function useOfflineQueue() {
                   })),
                   { onConflict: "id" }
                 )
+                .select("id")
+
+              if (error) throw error
+              if (!data || data.length === 0) {
+                throw new Error(
+                  "Offline upsert returned 0 rows — RLS may have blocked the write"
+                )
+              }
             }
           } else if (action.type === "delete" && action.blockId) {
-            await supabase
+            const { error } = await supabase
               .from("sp_session_blocks")
               .delete()
               .eq("id", action.blockId)
+            if (error) throw error
           }
         } catch (err) {
+          anyFailed = true
           console.error("Error flushing queued action:", action.id, err)
         }
       }
 
-      await clearQueue()
-      setQueueSize(0)
+      // Only clear the queue when every action successfully persisted.
+      // If anything failed we leave the queue intact so the next online
+      // event (or manual flush) can retry the user's unsaved work.
+      if (!anyFailed) {
+        await clearQueue()
+        setQueueSize(0)
+      } else {
+        const remaining = await getAllQueued()
+        setQueueSize(remaining.length)
+      }
     } catch (err) {
       console.error("Error flushing offline queue:", err)
     } finally {
