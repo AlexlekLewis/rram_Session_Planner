@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ResetPasswordPage() {
@@ -38,8 +38,11 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     let mounted = true;
 
+    // Supabase's callback is typed as `(event, session) => void`; TS function
+    // parameter contravariance allows omitting the unused `session` arg, which
+    // also keeps the lint clean (no _session unused-var warning).
     const { data: sub } = supabase.auth.onAuthStateChange(
-      (event: AuthChangeEvent, _session: Session | null) => {
+      (event: AuthChangeEvent) => {
         if (!mounted) return;
         if (event === "PASSWORD_RECOVERY") {
           setRecoveryValid(true);
