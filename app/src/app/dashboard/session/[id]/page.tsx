@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Session, SessionBlock, Squad, BlockCategory, Tier, Activity, AvailabilityStatus } from "@/lib/types";
@@ -30,7 +30,8 @@ import { toast } from "sonner";
 export default function SessionPage() {
   const params = useParams();
   const router = useRouter();
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
   const sessionId = params.id as string;
 
   const [session, setSession] = useState<Session | null>(null);
@@ -58,9 +59,14 @@ export default function SessionPage() {
   const isAdmin = role === "head_coach";
 
   // Coach availability & rostering for this session
+  // Memoize sessionIds to prevent useCoaches effect from re-firing every render
+  const coachSessionIds = useMemo(
+    () => (sessionId ? [sessionId] : undefined),
+    [sessionId]
+  );
   const coachData = useCoaches({
     programId: session?.program_id,
-    sessionIds: sessionId ? [sessionId] : undefined,
+    sessionIds: coachSessionIds,
     sessionId,
   });
 

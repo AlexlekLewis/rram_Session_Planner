@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -49,7 +49,11 @@ function DashboardLayoutInner({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = createClient();
+  // Use ref-stabilized client so it doesn't change identity across renders
+  // (a fresh createClient() on every render causes downstream useEffect/useCallback
+  // deps to churn, leading to cascading re-fetches).
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
   const {
     activeProgram,
     programs,
