@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ASSISTANT_TOOLS } from "@/lib/assistant-tools";
 import { ADMIN_TOOLS } from "@/lib/admin-tools";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 /**
  * AI Coaching Assistant API Route
@@ -8,6 +9,12 @@ import { ADMIN_TOOLS } from "@/lib/admin-tools";
  * Proxies messages to the Claude API with the session planner's
  * tool definitions. The ANTHROPIC_API_KEY is server-side only —
  * never exposed to the client.
+ *
+ * Auth rules:
+ * - Requires an authenticated Supabase session (cookie-based).
+ * - isAdmin is derived SERVER-SIDE from sp_program_members for the
+ *   requested programId. The client cannot self-promote by sending
+ *   isAdmin in the body — that field is ignored.
  *
  * PATTERN: Next.js API route → Anthropic Messages API with tool-use
  * SOURCE: Anthropic docs — "Tool use" + "Streaming Messages"
@@ -22,9 +29,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Require an authenticated user. Prevents unauthenticated access
+  // to the Claude API via this route.
+  const supabase = createServerSupabaseClient();
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const user = userData.user;
+
   try {
     const body = await request.json();
-    const { messages, systemPrompt, isAdmin } = body;
+    const { messages, systemPrompt, programId } = body;
+    // NOTE: body.isAdmin is intentionally ignored. Admin status is derived
+    // server-side below from sp_program_members.
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "messages array is required" }, { status: 400 });
@@ -32,6 +50,20 @@ export async function POST(request: NextRequest) {
 
     if (!systemPrompt || typeof systemPrompt !== "string") {
       return NextResponse.json({ error: "systemPrompt is required" }, { status: 400 });
+    }
+
+    // Derive isAdmin server-side. Only head_coach members of the active
+    // program get access to ADMIN_TOOLS.
+    let isAdmin = false;
+    if (programId && typeof programId === "string") {
+      const { data: member } = await supabase
+        .from("sp_program_members")
+        .select("role, status")
+        .eq("program_id", programId)
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+      isAdmin = member?.role === "head_coach";
     }
 
     // Call Claude API

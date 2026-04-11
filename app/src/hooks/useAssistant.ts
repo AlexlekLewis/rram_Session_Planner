@@ -1132,7 +1132,13 @@ export function useAssistant({
         const response = await fetch("/api/assistant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, systemPrompt, isAdmin }),
+          // programId is sent so the server can derive isAdmin from
+          // sp_program_members. The server ignores any client-sent isAdmin.
+          body: JSON.stringify({
+            messages: apiMessages,
+            systemPrompt,
+            programId: program?.id,
+          }),
         });
 
         if (!response.ok) {
@@ -1197,7 +1203,11 @@ export function useAssistant({
               const followUpResponse = await fetch("/api/assistant", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: followUpApiMessages, systemPrompt, isAdmin }),
+                body: JSON.stringify({
+                  messages: followUpApiMessages,
+                  systemPrompt,
+                  programId: program?.id,
+                }),
               });
 
               if (followUpResponse.ok) {
