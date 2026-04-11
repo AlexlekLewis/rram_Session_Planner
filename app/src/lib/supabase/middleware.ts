@@ -42,15 +42,23 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Redirect unauthenticated users to login (except for login page itself)
-  if (!user && !request.nextUrl.pathname.startsWith("/login")) {
+  // Public routes that do their own auth handling and must NOT be redirected
+  // before the URL's recovery token / invite token / PKCE code can be processed.
+  const pathname = request.nextUrl.pathname;
+  const isPublicRoute =
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/invite");
+
+  // Redirect unauthenticated users to login (except for public routes)
+  if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
   // Redirect authenticated users away from login page
-  if (user && request.nextUrl.pathname.startsWith("/login")) {
+  if (user && pathname.startsWith("/login")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard/month";
     return NextResponse.redirect(url);

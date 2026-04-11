@@ -20,12 +20,21 @@ export default function ResetPasswordPage() {
 
   // Detect recovery session.
   //
-  // SECURITY: We ONLY trust the PASSWORD_RECOVERY auth event. We intentionally
-  // do NOT fall back to `getSession()` + "is there a session?" — that allowed
-  // any already-signed-in user who happened to navigate to /reset-password to
-  // change the password of the account they were already logged into (e.g. if
-  // they closed the original tab). The recovery link should be the ONLY way
-  // to enter this flow. See PASSWD-001 in the 2026-04-10 audit.
+  // SECURITY: Recovery is only considered valid via ONE of two paths:
+  //   1. A PASSWORD_RECOVERY auth event (implicit/hash flow — Supabase parses
+  //      `#access_token=...&type=recovery` from the URL and fires the event).
+  //   2. A successful exchangeCodeForSession(code) where `code` came from the
+  //      URL's `?code=` query param (PKCE flow — this is what Supabase sends
+  //      from its `/auth/v1/verify` redirect for password recovery emails).
+  //
+  // We intentionally do NOT fall back to plain `getSession()` + "is there a
+  // session?" — that allowed any already-signed-in user who happened to
+  // navigate to /reset-password to change the password of their own current
+  // account (e.g. if they closed the original recovery tab). See PASSWD-001
+  // in the 2026-04-10 audit.
+  //
+  // Both allowed paths require fresh proof (an event or a code) that the
+  // user followed the recovery email link, not just that they're signed in.
   useEffect(() => {
     let mounted = true;
 
@@ -39,11 +48,31 @@ export default function ResetPasswordPage() {
       }
     );
 
-    // If we haven't received PASSWORD_RECOVERY within a short window, mark
-    // the link as invalid so the user sees an error rather than a spinner.
+    // PKCE flow: if a `?code=...` is in the URL, exchange it for a session.
+    // Only marking recovery valid on successful exchange preserves the
+    // security property — a signed-in visitor without a code cannot reach
+    // the form, and a fake code fails the exchange.
+    (async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      if (!code) return;
+      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+      if (!mounted) return;
+      if (!exchangeError) {
+        setRecoveryValid(true);
+        setReady(true);
+        // Strip the code so a refresh doesn't retry a now-consumed exchange.
+        url.searchParams.delete("code");
+        window.history.replaceState({}, "", url.toString());
+      }
+    })();
+
+    // If we haven't received PASSWORD_RECOVERY or successfully exchanged a
+    // code within a short window, mark the link as invalid so the user sees
+    // an error rather than a spinner.
     const timer = setTimeout(() => {
       if (mounted) setReady(true);
-    }, 1_500);
+    }, 2_500);
 
     return () => {
       mounted = false;
