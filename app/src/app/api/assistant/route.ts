@@ -52,19 +52,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "systemPrompt is required" }, { status: 400 });
     }
 
+    // programId is required so we can look up the caller's role. Without it
+    // we cannot gate ADMIN_TOOLS and fall back to the safe (coach) tool set,
+    // but we still require the caller to identify the program they are in —
+    // this avoids ambiguous states where a head coach in Program A calls the
+    // endpoint while viewing Program B and silently gets coach-only tools.
+    if (!programId || typeof programId !== "string") {
+      return NextResponse.json({ error: "programId is required" }, { status: 400 });
+    }
+
     // Derive isAdmin server-side. Only head_coach members of the active
     // program get access to ADMIN_TOOLS.
-    let isAdmin = false;
-    if (programId && typeof programId === "string") {
-      const { data: member } = await supabase
-        .from("sp_program_members")
-        .select("role, status")
-        .eq("program_id", programId)
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .maybeSingle();
-      isAdmin = member?.role === "head_coach";
-    }
+    const { data: member } = await supabase
+      .from("sp_program_members")
+      .select("role, status")
+      .eq("program_id", programId)
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .maybeSingle();
+    const isAdmin = member?.role === "head_coach";
 
     // Call Claude API
     const response = await fetch("https://api.anthropic.com/v1/messages", {

@@ -1133,6 +1133,14 @@ export function useAssistant({
           isAdmin,
         });
 
+        // The server requires programId so it can derive the caller's role
+        // from sp_program_members. Fail fast if there is no active program.
+        if (!program?.id) {
+          throw new Error(
+            "No active program — select a program before using the assistant."
+          );
+        }
+
         const response = await fetch("/api/assistant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
