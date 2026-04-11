@@ -137,38 +137,39 @@ export function useOfflineQueue() {
       for (const action of sorted) {
         try {
           if (action.type === "upsert" && action.blocks) {
-            // Delete all blocks for session, then re-insert
-            await supabase
-              .from("sp_session_blocks")
-              .delete()
-              .eq("session_id", action.sessionId)
-
+            // Upsert by id instead of delete-all + re-insert. The old pattern
+            // caused data loss when two coaches had edited the same session
+            // offline: the second flush would delete blocks the first flush
+            // had just persisted. Matches the pattern used in useAutoSave.ts.
             if (action.blocks.length > 0) {
-              await supabase.from("sp_session_blocks").insert(
-                action.blocks.map((block) => ({
-                  id: block.id,
-                  session_id: block.session_id,
-                  activity_id: block.activity_id || null,
-                  name: block.name,
-                  lane_start: block.lane_start,
-                  lane_end: block.lane_end,
-                  time_start: block.time_start,
-                  time_end: block.time_end,
-                  colour: block.colour,
-                  category: block.category,
-                  tier: block.tier,
-                  other_location: block.other_location || null,
-                  coaching_notes: block.coaching_notes || null,
-                  coaching_points: block.coaching_points || [],
-                  player_groups: block.player_groups || [],
-                  equipment: block.equipment || [],
-                  coach_assigned: block.coach_assigned || null,
-                  sort_order: block.sort_order,
-                  created_by: block.created_by || null,
-                  created_at: block.created_at,
-                  updated_at: block.updated_at,
-                }))
-              )
+              await supabase
+                .from("sp_session_blocks")
+                .upsert(
+                  action.blocks.map((block) => ({
+                    id: block.id,
+                    session_id: block.session_id,
+                    activity_id: block.activity_id || null,
+                    name: block.name,
+                    lane_start: block.lane_start,
+                    lane_end: block.lane_end,
+                    time_start: block.time_start,
+                    time_end: block.time_end,
+                    colour: block.colour,
+                    category: block.category,
+                    tier: block.tier,
+                    other_location: block.other_location || null,
+                    coaching_notes: block.coaching_notes || null,
+                    coaching_points: block.coaching_points || [],
+                    player_groups: block.player_groups || [],
+                    equipment: block.equipment || [],
+                    coach_assigned: block.coach_assigned || null,
+                    sort_order: block.sort_order,
+                    created_by: block.created_by || null,
+                    created_at: block.created_at,
+                    updated_at: block.updated_at,
+                  })),
+                  { onConflict: "id" }
+                )
             }
           } else if (action.type === "delete" && action.blockId) {
             await supabase
