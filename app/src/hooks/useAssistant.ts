@@ -7,6 +7,7 @@ import { buildSystemPrompt } from "@/lib/assistant-context";
 import { validateToolCall } from "@/lib/assistant-tools";
 import { executeAdminAction, describeAdminAction, validateAdminToolCall } from "@/lib/admin-tools";
 import { createClient } from "@/lib/supabase/client";
+import { sanitizeForPromptStorage } from "@/lib/sanitize-prompt";
 
 // shiftDate removed — H5 fix now uses server-side RPC for atomic date shifts
 
@@ -588,10 +589,13 @@ export function useAssistant({
         case "remember": {
           try {
             const supabase = createClient();
+            // Sanitize free-text fields on storage. These entries are later
+            // injected back into the system prompt, so they are a prompt-
+            // injection vector if stored verbatim. See sanitize-prompt.ts.
             const { error } = await supabase.from("sp_coaching_knowledge").insert({
               category: input.category,
-              title: input.title,
-              content: input.content,
+              title: sanitizeForPromptStorage(input.title),
+              content: sanitizeForPromptStorage(input.content),
               tags: input.tags || [],
               source: `AI Coach conversation on ${(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; })()}`,
             });
