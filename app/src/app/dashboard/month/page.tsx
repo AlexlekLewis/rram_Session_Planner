@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Program, Phase, Squad, Session } from "@/lib/types";
@@ -10,7 +10,9 @@ import { MonthCalendar } from "@/components/calendar/MonthCalendar";
 type ViewMode = "overview" | "detail";
 
 export default function MonthPage() {
-  const supabase = createClient();
+  // Stable Supabase client: createClient() returns a fresh object every
+  // render, which churns any downstream useEffect dep that references it.
+  const supabase = useRef(createClient()).current;
   const router = useRouter();
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
