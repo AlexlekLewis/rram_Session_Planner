@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Session, SessionBlock, Squad, BlockCategory, Tier, Activity, AvailabilityStatus } from "@/lib/types";
@@ -30,7 +30,8 @@ import { toast } from "sonner";
 export default function SessionPage() {
   const params = useParams();
   const router = useRouter();
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
   const sessionId = params.id as string;
 
   const [session, setSession] = useState<Session | null>(null);
@@ -58,9 +59,14 @@ export default function SessionPage() {
   const isAdmin = role === "head_coach";
 
   // Coach availability & rostering for this session
+  // Memoize sessionIds to prevent useCoaches effect from re-firing every render
+  const coachSessionIds = useMemo(
+    () => (sessionId ? [sessionId] : undefined),
+    [sessionId]
+  );
   const coachData = useCoaches({
     programId: session?.program_id,
-    sessionIds: sessionId ? [sessionId] : undefined,
+    sessionIds: coachSessionIds,
     sessionId,
   });
 
@@ -466,36 +472,38 @@ export default function SessionPage() {
       </header>
 
       {/* Grid + Library Panel */}
-      <div className="flex-1 overflow-hidden relative">
-        {canEdit ? (
-          <SessionGrid
-            session={session}
-            blocks={blockManager.blocks}
-            selectedBlockIds={blockManager.selectedBlockIds}
-            onAddBlock={addBlock}
-            onUpdateBlock={updateBlock}
-            onDeleteBlock={deleteBlock}
-            onMoveBlock={moveBlock}
-            onDuplicateBlock={duplicateBlock}
-            onSelectBlocks={blockManager.setSelectedBlockIds}
-            hasCollision={blockManager.hasCollision}
+      <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
+        <div className="flex-1 overflow-hidden relative min-h-0">
+          {canEdit ? (
+            <SessionGrid
+              session={session}
+              blocks={blockManager.blocks}
+              selectedBlockIds={blockManager.selectedBlockIds}
+              onAddBlock={addBlock}
+              onUpdateBlock={updateBlock}
+              onDeleteBlock={deleteBlock}
+              onMoveBlock={moveBlock}
+              onDuplicateBlock={duplicateBlock}
+              onSelectBlocks={blockManager.setSelectedBlockIds}
+              hasCollision={blockManager.hasCollision}
+            />
+          ) : (
+            <ReadOnlyGrid session={session} blocks={blockManager.blocks} />
+          )}
+
+          {/* Activity Library Panel */}
+          <LibraryPanel
+            isOpen={libraryOpen}
+            onClose={() => setLibraryOpen(false)}
+            onDragStart={(activity, e) => {
+              e.dataTransfer.setData("application/activity-id", activity.id);
+              e.dataTransfer.setData("application/activity-json", JSON.stringify(activity));
+              e.dataTransfer.effectAllowed = "copy";
+            }}
           />
-        ) : (
-          <ReadOnlyGrid session={session} blocks={blockManager.blocks} />
-        )}
+        </div>
 
-        {/* Activity Library Panel */}
-        <LibraryPanel
-          isOpen={libraryOpen}
-          onClose={() => setLibraryOpen(false)}
-          onDragStart={(activity, e) => {
-            e.dataTransfer.setData("application/activity-id", activity.id);
-            e.dataTransfer.setData("application/activity-json", JSON.stringify(activity));
-            e.dataTransfer.effectAllowed = "copy";
-          }}
-        />
-
-        {/* Block Detail Panel */}
+        {/* Block Detail Panel — inline sibling, pushes grid up instead of overlaying */}
         {selectedBlock && (
           <BlockDetailPanel
             block={selectedBlock}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Session, Squad } from "@/lib/types";
@@ -20,7 +20,9 @@ interface WeekData {
 }
 
 export default function PlayerPage() {
-  const supabase = createClient();
+  // Stable Supabase client — avoid churning useEffect deps with a
+  // fresh object on every render.
+  const supabase = useRef(createClient()).current;
   const router = useRouter();
 
   const [sessions, setSessions] = useState<SessionWithSquads[]>([]);

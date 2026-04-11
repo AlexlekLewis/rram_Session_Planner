@@ -62,6 +62,9 @@ export function SessionGrid({
       const endMinutes = eh * 60 + em + 5;
       const actualEnd = `${Math.floor(endMinutes / 60).toString().padStart(2, "0")}:${(endMinutes % 60).toString().padStart(2, "0")}`;
 
+      // Close any open BlockDetailPanel so it doesn't overlap the create modal
+      onSelectBlocks([]);
+
       setCreateModal({
         position: mousePosition,
         laneStart,
@@ -70,7 +73,7 @@ export function SessionGrid({
         timeEnd: actualEnd,
       });
     },
-    [timeSlots]
+    [timeSlots, onSelectBlocks]
   );
 
   // Confirm block creation
@@ -111,21 +114,42 @@ export function SessionGrid({
   );
 
   return (
-    <div className="flex h-full bg-white dark:bg-gray-900 overflow-x-auto overflow-y-hidden relative">
-      {/* Time Axis (Left Column) — sticky on horizontal scroll */}
-      <div className="sticky left-0 z-10 bg-white dark:bg-gray-900">
-        <TimeAxis startTime={session.start_time} endTime={session.end_time} />
-      </div>
+    <div className="h-full bg-white dark:bg-gray-900 overflow-auto relative">
+      {/* Single CSS grid so time axis + grid canvas share one scroll container.
+          Corner, lane headers, and time axis use `sticky` to stay pinned while
+          the scroll container moves the grid content underneath them. */}
+      <div
+        className="relative"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "64px minmax(600px, 1fr)",
+          gridTemplateRows: "auto auto",
+        }}
+      >
+        {/* Top-left corner — sticky both directions */}
+        <div
+          className="sticky top-0 left-0 z-30 bg-gray-50 dark:bg-gray-800 border-r border-b border-gray-200 dark:border-gray-700"
+          style={{ gridColumn: 1, gridRow: 1, height: 62 }}
+        />
 
-      {/* Main Grid Area — min-width ensures all 8 lanes visible, scrollable on mobile */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-[600px]">
-        {/* Lane Headers */}
-        <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 sticky top-0 z-20">
+        {/* Lane Headers — sticky top, scrolls horizontally with grid */}
+        <div
+          className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700"
+          style={{ gridColumn: 2, gridRow: 1 }}
+        >
           <LaneHeader />
         </div>
 
-        {/* Grid Canvas (Scrollable) */}
-        <div className="flex-1 overflow-auto">
+        {/* Time Axis — sticky left, scrolls vertically with grid */}
+        <div
+          className="sticky left-0 z-10 border-r border-gray-200 dark:border-gray-700"
+          style={{ gridColumn: 1, gridRow: 2 }}
+        >
+          <TimeAxis startTime={session.start_time} endTime={session.end_time} />
+        </div>
+
+        {/* Grid Canvas */}
+        <div style={{ gridColumn: 2, gridRow: 2 }}>
           <GridCanvas
             session={session}
             blocks={blocks}

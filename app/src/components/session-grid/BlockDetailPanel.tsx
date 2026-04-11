@@ -165,9 +165,8 @@ export function BlockDetailPanel({
   return (
     <div
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-25",
+        "shrink-0 relative z-20",
         "bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl",
-        "transform transition-all duration-300 ease-out",
         "max-h-[300px] overflow-y-auto"
       )}
     >

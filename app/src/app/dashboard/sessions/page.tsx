@@ -28,7 +28,8 @@ export default function SessionsPage() {
 }
 
 function SessionsContent() {
-  const supabase = createClient();
+  // Stable Supabase client — avoid churning useEffect deps.
+  const supabase = useRef(createClient()).current;
   const searchParams = useSearchParams();
   const [sessions, setSessions] = useState<SessionWithRelations[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);

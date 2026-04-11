@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useProgram } from "@/lib/program-context";
 import { useCoaches } from "@/hooks/useCoaches";
 import { CoachRosterTable } from "@/components/coaches/CoachRosterTable";
@@ -18,7 +18,8 @@ interface SessionSlot {
 
 export default function CoachesPage() {
   const { activeProgram, isAdmin } = useProgram();
-  const supabase = createClient();
+  // Stable Supabase client — avoid churning useEffect/useCallback deps.
+  const supabase = useRef(createClient()).current;
   const [currentUserId, setCurrentUserId] = useState<string>();
   const [editingCoach, setEditingCoach] = useState<ProgramMember | null>(null);
   const [sessions, setSessions] = useState<SessionSlot[]>([]);

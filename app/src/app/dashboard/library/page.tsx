@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Activity, TierDetail, GamifyDetail, CoachingFramework, BlockCategory } from "@/lib/types";
 import { CATEGORY_COLOURS, CATEGORY_LABELS, ALL_CATEGORIES } from "@/lib/constants";
@@ -51,7 +51,8 @@ const emptyFormData: ActivityFormData = {
 };
 
 export default function LibraryPage() {
-  const supabase = createClient();
+  // Stable Supabase client — avoid churning useEffect deps.
+  const supabase = useRef(createClient()).current;
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState<string>("all");

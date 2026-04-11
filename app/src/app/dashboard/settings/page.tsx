@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Program, Phase, Squad, Coach, Player } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,8 @@ import { useProgram } from "@/lib/program-context";
 type Tab = "program" | "squads" | "coaches" | "players" | "members";
 
 export default function SettingsPage() {
-  const supabase = createClient();
+  // Stable Supabase client — avoid churning useEffect deps.
+  const supabase = useRef(createClient()).current;
   const { isAdmin } = useProgram();
   const [activeTab, setActiveTab] = useState<Tab>("program");
   const [loading, setLoading] = useState(true);
