@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ResetPasswordPage() {
@@ -14,38 +15,39 @@ export default function ResetPasswordPage() {
   const [ready, setReady] = useState(false);
   const [recoveryValid, setRecoveryValid] = useState(false);
 
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
-  // Detect recovery session. Supabase fires PASSWORD_RECOVERY when the user
-  // lands here via the email link, but if the page mounts after the event has
-  // already fired we also check the current session.
+  // Detect recovery session.
+  //
+  // SECURITY: We ONLY trust the PASSWORD_RECOVERY auth event. We intentionally
+  // do NOT fall back to `getSession()` + "is there a session?" — that allowed
+  // any already-signed-in user who happened to navigate to /reset-password to
+  // change the password of the account they were already logged into (e.g. if
+  // they closed the original tab). The recovery link should be the ONLY way
+  // to enter this flow. See PASSWD-001 in the 2026-04-10 audit.
   useEffect(() => {
     let mounted = true;
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!mounted) return;
-      if (event === "PASSWORD_RECOVERY") {
-        setRecoveryValid(true);
-        setReady(true);
-      } else if (event === "SIGNED_IN" && session) {
-        // If we're already signed in via recovery token, allow the update.
-        setRecoveryValid(true);
-        setReady(true);
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      (event: AuthChangeEvent, _session: Session | null) => {
+        if (!mounted) return;
+        if (event === "PASSWORD_RECOVERY") {
+          setRecoveryValid(true);
+          setReady(true);
+        }
       }
-    });
+    );
 
-    // Fallback: if the recovery token was already exchanged before this
-    // listener attached, there will be an active session on mount.
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      if (data.session) {
-        setRecoveryValid(true);
-      }
-      setReady(true);
-    });
+    // If we haven't received PASSWORD_RECOVERY within a short window, mark
+    // the link as invalid so the user sees an error rather than a spinner.
+    const timer = setTimeout(() => {
+      if (mounted) setReady(true);
+    }, 1_500);
 
     return () => {
       mounted = false;
+      clearTimeout(timer);
       sub.subscription.unsubscribe();
     };
   }, [supabase]);
