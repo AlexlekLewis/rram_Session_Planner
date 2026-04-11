@@ -316,6 +316,10 @@ export function useAssistant({
       }
       case "get_session_roster":
         return `Get coaching roster${input.session_date ? ` for ${input.session_date}` : " for current session"}`;
+      case "add_coach":
+        return `Invite ${input.display_name} to the program as ${String(input.role || "").replace("_", " ")}${input.email ? ` (${input.email})` : ""}`;
+      case "remove_coach":
+        return `Deactivate ${input.coach_name} in the program`;
       default:
         // Check if it's an admin tool
         if (toolName.startsWith("admin_")) {
@@ -979,6 +983,105 @@ export function useAssistant({
                 return `• ${c.display_name} — ${r.role.replace("_", " ")}${c.speciality ? ` (${c.speciality})` : ""} | availability: ${avail}${r.confirmed ? " ✓" : ""}`;
               })
               .join("\n");
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "add_coach": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return "Not signed in — cannot create an invite.";
+
+            // Guard against inviting someone who's already a member (by email).
+            if (input.email) {
+              const { data: existing } = await supabase
+                .from("sp_program_members")
+                .select("id, display_name, status")
+                .eq("program_id", programId);
+              // We can't directly filter by auth.users.email from here, so we rely on the
+              // invite unique constraint to block duplicate pending invites instead.
+              void existing;
+            }
+
+            const { data: invite, error } = await supabase
+              .from("sp_program_invites")
+              .insert({
+                program_id: programId,
+                email: input.email || null,
+                role: input.role,
+                invited_by: user.id,
+              })
+              .select("token")
+              .single();
+
+            if (error) return `Failed to create invite: ${error.message}`;
+            if (!invite?.token) return "Invite created but no token returned — check the Members tab in Settings.";
+
+            const origin = typeof window !== "undefined" ? window.location.origin : "";
+            const inviteLink = `${origin}/invite/${invite.token}`;
+            const roleLabel = String(input.role).replace("_", " ");
+            return `Invite created for ${input.display_name} as ${roleLabel}. Share this link:\n${inviteLink}\n\nOnce they accept, use update_coach_profile to set their display name and speciality.`;
+          } catch (err) {
+            return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "remove_coach": {
+          try {
+            const supabase = createClient();
+            const programId = program?.id;
+            if (!programId) return "No active program.";
+
+            // Find the coach
+            const { data: coaches } = await supabase
+              .from("sp_program_members")
+              .select("id, user_id, display_name, role")
+              .eq("program_id", programId)
+              .eq("status", "active")
+              .in("role", ["head_coach", "assistant_coach", "guest_coach"]);
+
+            const coach = coaches?.find((c: { display_name: string }) =>
+              c.display_name?.toLowerCase().includes(String(input.coach_name).toLowerCase())
+            );
+            if (!coach) {
+              const names = coaches?.map((c: { display_name: string }) => c.display_name).filter(Boolean).join(", ");
+              return `Coach "${input.coach_name}" not found. Active coaches: ${names || "none"}`;
+            }
+
+            // Soft-deactivate the membership
+            const { error: deactivateError } = await supabase
+              .from("sp_program_members")
+              .update({ status: "inactive", updated_at: new Date().toISOString() })
+              .eq("id", coach.id);
+            if (deactivateError) return `Failed to deactivate: ${deactivateError.message}`;
+
+            // Strip them off session rosters + availability within this program.
+            // Scoped by session_id IN (sessions of this program) to avoid touching other programs.
+            const { data: programSessions } = await supabase
+              .from("sp_sessions")
+              .select("id")
+              .eq("program_id", programId);
+            const sessionIds = (programSessions || []).map((s: { id: string }) => s.id);
+
+            if (sessionIds.length > 0) {
+              await supabase
+                .from("sp_session_coaches")
+                .delete()
+                .eq("user_id", coach.user_id)
+                .in("session_id", sessionIds);
+              await supabase
+                .from("sp_coach_availability")
+                .delete()
+                .eq("user_id", coach.user_id)
+                .in("session_id", sessionIds);
+            }
+
+            return `${coach.display_name || "Coach"} deactivated and removed from all session rosters. Reactivate from Settings → Members if needed.`;
           } catch (err) {
             return `Failed: ${err instanceof Error ? err.message : "Unknown error"}`;
           }

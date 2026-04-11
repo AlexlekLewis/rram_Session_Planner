@@ -502,6 +502,43 @@ export const ASSISTANT_TOOLS = [
       required: [],
     },
   },
+  {
+    name: "add_coach",
+    description: "Invite a new coach to the program. Creates a shareable invite link — the coach accepts it, creates an account, and appears in list_coaches as an active member. Use when Alex says 'add Bob Smith as a batting coach', 'invite Sarah to the program', or 'create an invite for a new assistant'. If the coach is already in the program, use update_coach_profile or roster_coach instead — do NOT call add_coach again. After creating the invite, tell Alex exactly what to do next: share the returned link with the coach, and note that their display_name/speciality can be set with update_coach_profile once they accept.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        display_name: {
+          type: "string",
+          description: "The coach's name (e.g. 'Bob Smith'). Used only in the confirmation message — the actual display_name is set on sp_program_members when the coach accepts the invite.",
+        },
+        role: {
+          type: "string",
+          description: "Coach role",
+          enum: ["head_coach", "assistant_coach", "guest_coach"],
+        },
+        email: {
+          type: "string",
+          description: "Optional email address. If provided, the invite is tied to that email. If omitted, creates an anonymous invite link that anyone with the link can accept.",
+        },
+      },
+      required: ["display_name", "role"],
+    },
+  },
+  {
+    name: "remove_coach",
+    description: "Deactivate a coach in the program. Sets their membership status to 'inactive' so they stop appearing in list_coaches, the session coach bar, and availability pickers. Existing session history is preserved and the action is reversible via Settings → Members. Also strips the coach off every session roster and cancels any pending availability they had set. Use when Alex says 'remove Bob from the program', 'take Sarah off the coaching staff', or 'deactivate Matt'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        coach_name: {
+          type: "string",
+          description: "Display name of the coach to deactivate. Partial match is supported (e.g. 'Sarah' matches 'Sarah Mitchell').",
+        },
+      },
+      required: ["coach_name"],
+    },
+  },
 ];
 
 /**
