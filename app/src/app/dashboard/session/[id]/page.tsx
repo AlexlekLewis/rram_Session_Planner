@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Session, SessionBlock, Squad, BlockCategory, Tier, Activity, AvailabilityStatus } from "@/lib/types";
+import { Session, SessionBlock, Squad, BlockCategory, Tier, Activity } from "@/lib/types";
 import { useCoaches } from "@/hooks/useCoaches";
 import { SessionCoachBar } from "@/components/session-grid/SessionCoachBar";
 import { cn } from "@/lib/utils";

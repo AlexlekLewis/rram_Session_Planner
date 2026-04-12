@@ -24,12 +24,6 @@ function getInitials(name?: string): string {
     .slice(0, 2);
 }
 
-const AVAIL_DOT: Record<string, string> = {
-  available: "bg-emerald-400",
-  unavailable: "bg-red-400",
-  tentative: "bg-amber-400",
-};
-
 const ROLE_TAG: Record<CoachRoleInSession, { label: string; className: string }> = {
   squad_coach: { label: "Squad", className: "bg-rr-blue/20 text-rr-blue" },
   assistant: { label: "Asst", className: "bg-emerald-100 text-emerald-700" },
@@ -39,6 +33,7 @@ const ROLE_TAG: Record<CoachRoleInSession, { label: string; className: string }>
 export function SessionCoachBar({
   coaches,
   sessionCoaches,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   availability,
   onRoster,
   onUnroster,

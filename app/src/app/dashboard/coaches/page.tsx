@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useProgram } from "@/lib/program-context";
 import { useCoaches, CoachRecord } from "@/hooks/useCoaches";
-import { CoachProfileModal } from "@/components/coaches/CoachProfileModal";
 import { Session, SessionCoach, CoachRoleInSession } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -110,7 +109,6 @@ export default function CoachesPage() {
     coaches,
     sessionCoaches,
     loading: coachesLoading,
-    getSessionCoachesByRole,
   } = useCoaches({
     programId: activeProgram?.id,
     sessionIds,
@@ -416,6 +414,7 @@ export default function CoachesPage() {
 function CoachProfileModalWrapper({
   coach,
   onClose,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   canEdit,
 }: {
   coach: CoachRecord;
