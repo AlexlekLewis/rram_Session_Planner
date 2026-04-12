@@ -2,11 +2,12 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useProgram } from "@/lib/program-context";
-import { useCoaches } from "@/hooks/useCoaches";
-import { CoachRosterTable } from "@/components/coaches/CoachRosterTable";
+import { useCoaches, CoachRecord } from "@/hooks/useCoaches";
 import { CoachProfileModal } from "@/components/coaches/CoachProfileModal";
-import { ProgramMember, AvailabilityStatus, Session } from "@/lib/types";
+import { Session, SessionCoach, CoachRoleInSession } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
+import { formatTimeShort } from "@/lib/constants";
 
 interface SessionSlot {
   date: string;
@@ -16,15 +17,45 @@ interface SessionSlot {
   squadNames: string[];
 }
 
+const COACH_ROLE_BADGES: Record<CoachRoleInSession, { label: string; className: string }> = {
+  squad_coach: { label: "Squad", className: "bg-rr-blue/10 text-rr-blue" },
+  assistant: { label: "Assistant", className: "bg-emerald-50 text-emerald-700" },
+  specialist: { label: "Specialist", className: "bg-rr-pink/10 text-rr-pink" },
+};
+
+const ROLE_BADGES: Record<string, { label: string; className: string }> = {
+  head_coach: { label: "Head Coach", className: "bg-rr-pink/10 text-rr-pink" },
+  assistant_coach: { label: "Coach", className: "bg-rr-blue/10 text-rr-blue" },
+  guest_coach: { label: "Specialist", className: "bg-amber-100 text-amber-700" },
+};
+
+function getInitials(name?: string): string {
+  if (name) {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  }
+  return "?";
+}
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.toLocaleDateString("en-AU", { weekday: "short" });
+  const num = d.getDate();
+  const month = d.toLocaleDateString("en-AU", { month: "short" });
+  return `${day} ${num} ${month}`;
+}
+
 export default function CoachesPage() {
   const { activeProgram, isAdmin } = useProgram();
-  // Stable Supabase client — avoid churning useEffect/useCallback deps.
   const supabase = useRef(createClient()).current;
-  const [currentUserId, setCurrentUserId] = useState<string>();
-  const [editingCoach, setEditingCoach] = useState<ProgramMember | null>(null);
   const [sessions, setSessions] = useState<SessionSlot[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"upcoming" | "all">("upcoming");
+  const [editingCoach, setEditingCoach] = useState<CoachRecord | null>(null);
 
   // Fetch sessions for the program
   const fetchSessions = useCallback(async () => {
@@ -70,7 +101,6 @@ export default function CoachesPage() {
     return sessions.filter((s) => s.date >= today);
   }, [sessions, viewMode]);
 
-  // Get session IDs for availability fetch
   const sessionIds = useMemo(
     () => filteredSessions.map((s) => s.sessionId),
     [filteredSessions]
@@ -78,34 +108,47 @@ export default function CoachesPage() {
 
   const {
     coaches,
-    availability,
+    sessionCoaches,
     loading: coachesLoading,
-    setCoachAvailability,
-    updateCoachProfile,
+    getSessionCoachesByRole,
   } = useCoaches({
     programId: activeProgram?.id,
     sessionIds,
   });
 
-  // Get current user ID
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }: { data: { user: { id: string } | null } }) => {
-      setCurrentUserId(data.user?.id);
-    });
-  }, [supabase]);
-
-  const handleSetAvailability = async (userId: string, sessionId: string, status: AvailabilityStatus) => {
-    await setCoachAvailability(userId, sessionId, status);
-  };
-
   const loading = sessionsLoading || coachesLoading;
+
+  // Build a lookup: for each coach, which sessions are they assigned to and in what role?
+  const coachSessionMap = useMemo(() => {
+    const map = new Map<string, SessionCoach[]>();
+    for (const sc of sessionCoaches) {
+      const key = sc.coach_id || sc.user_id || "";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(sc);
+    }
+    return map;
+  }, [sessionCoaches]);
+
+  // Group sessions by date
+  const dateGroups: { date: string; sessions: SessionSlot[] }[] = useMemo(() => {
+    const groups: { date: string; sessions: SessionSlot[] }[] = [];
+    for (const session of filteredSessions) {
+      const last = groups[groups.length - 1];
+      if (last && last.date === session.date) {
+        last.sessions.push(session);
+      } else {
+        groups.push({ date: session.date, sessions: [session] });
+      }
+    }
+    return groups;
+  }, [filteredSessions]);
 
   // Summary stats
   const totalCoaches = coaches.length;
-  const nextSession = filteredSessions[0];
-  const nextSessionAvailable = nextSession
-    ? availability.filter((a) => a.session_id === nextSession.sessionId && a.status === "available").length
-    : 0;
+  const squadCoachCount = coaches.filter(
+    (c) => c.role === "assistant_coach" && c.speciality?.toLowerCase().includes("squad")
+  ).length;
+  const specialistCount = coaches.filter((c) => c.role === "guest_coach").length;
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 py-6">
@@ -114,19 +157,19 @@ export default function CoachesPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Coaches</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Manage your coaching team and track availability across sessions
+            Session coaching allocations and availability
           </p>
         </div>
 
-        {/* Summary badges */}
         <div className="flex items-center gap-3">
           <div className="bg-rr-blue/10 text-rr-blue px-3 py-1.5 rounded-lg text-sm font-medium">
             {totalCoaches} Coaches
           </div>
           <div className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-sm font-medium">
-            {nextSession
-              ? `${nextSessionAvailable} Available Next Session`
-              : "No Upcoming Sessions"}
+            {squadCoachCount} Squad Coaches
+          </div>
+          <div className="bg-rr-pink/10 text-rr-pink px-3 py-1.5 rounded-lg text-sm font-medium">
+            {specialistCount} Specialists
           </div>
           <div className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-sm font-medium">
             {filteredSessions.length} Sessions
@@ -144,7 +187,6 @@ export default function CoachesPage() {
             )}
           </div>
 
-          {/* View toggle */}
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
             <button
               onClick={() => setViewMode("upcoming")}
@@ -167,29 +209,26 @@ export default function CoachesPage() {
 
         {/* Legend */}
         <div className="flex items-center gap-4 px-4 py-2 border-b border-gray-50 bg-gray-50/50">
-          <span className="text-[10px] text-gray-400 uppercase font-semibold tracking-wider">Legend:</span>
+          <span className="text-[10px] text-gray-400 uppercase font-semibold tracking-wider">Roles:</span>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-emerald-400" />
-            <span className="text-xs text-gray-500">Available</span>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rr-blue/10 text-rr-blue">S</span>
+            <span className="text-xs text-gray-500">Squad Coach</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-red-400" />
-            <span className="text-xs text-gray-500">Unavailable</span>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">A</span>
+            <span className="text-xs text-gray-500">Assistant</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-amber-400" />
-            <span className="text-xs text-gray-500">Tentative</span>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rr-pink/10 text-rr-pink">SP</span>
+            <span className="text-xs text-gray-500">Specialist</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 ml-4">
             <div className="w-4 h-4 rounded-full bg-gray-100 border-2 border-dashed border-gray-300" />
-            <span className="text-xs text-gray-500">Not set</span>
+            <span className="text-xs text-gray-500">Not assigned</span>
           </div>
-          {isAdmin && (
-            <span className="text-[10px] text-gray-400 ml-4">Click cells to toggle</span>
-          )}
         </div>
 
-        {/* Coach roster + availability grid */}
+        {/* Coach allocation grid */}
         {loading ? (
           <div className="flex items-center justify-center py-20 text-gray-400">
             <svg className="animate-spin w-5 h-5 mr-2" viewBox="0 0 24 24">
@@ -201,30 +240,224 @@ export default function CoachesPage() {
         ) : filteredSessions.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <p className="text-lg font-medium">No {viewMode === "upcoming" ? "upcoming " : ""}sessions found</p>
-            <p className="text-sm mt-1">Create sessions in the Month view to track coach availability</p>
+            <p className="text-sm mt-1">Create sessions in the Month view to track coach allocations</p>
           </div>
         ) : (
-          <CoachRosterTable
-            coaches={coaches}
-            availability={availability}
-            sessions={filteredSessions}
-            onEditCoach={setEditingCoach}
-            onSetAvailability={handleSetAvailability}
-            currentUserId={currentUserId}
-            isAdmin={isAdmin}
-          />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                {/* Date grouping row */}
+                <tr className="border-b border-gray-100">
+                  <th colSpan={3} className="sticky left-0 bg-white z-10" />
+                  {dateGroups.map((group) => (
+                    <th
+                      key={group.date}
+                      colSpan={group.sessions.length}
+                      className="text-center py-2 px-1 font-semibold text-gray-700 text-[11px] border-l border-gray-200 first:border-l-0"
+                    >
+                      {formatDate(group.date)}
+                    </th>
+                  ))}
+                </tr>
+                {/* Session detail row */}
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 px-4 font-semibold text-gray-700 sticky left-0 bg-white z-10 min-w-[200px]">
+                    Coach
+                  </th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-700 min-w-[80px]">
+                    Type
+                  </th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-700 min-w-[120px]">
+                    Speciality
+                  </th>
+                  {filteredSessions.map((session, idx) => {
+                    const isFirstOfDate = idx === 0 || filteredSessions[idx - 1].date !== session.date;
+                    return (
+                      <th
+                        key={session.sessionId}
+                        className={cn(
+                          "text-center py-2 px-1 font-medium text-gray-500 min-w-[72px]",
+                          isFirstOfDate && idx > 0 && "border-l border-gray-200"
+                        )}
+                      >
+                        <div className="text-[9px] leading-tight text-gray-600 font-semibold">
+                          {formatTimeShort(session.startTime)}–{formatTimeShort(session.endTime)}
+                        </div>
+                        {session.squadNames.length > 0 && (
+                          <div
+                            className="text-[8px] leading-tight text-rr-blue/70 mt-0.5 truncate max-w-[68px] mx-auto"
+                            title={session.squadNames.join(", ")}
+                          >
+                            {session.squadNames.join(", ")}
+                          </div>
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {coaches.map((coach) => {
+                  const badge = ROLE_BADGES[coach.role] || ROLE_BADGES.assistant_coach;
+                  const assignments = coachSessionMap.get(coach.id) || [];
+
+                  return (
+                    <tr
+                      key={coach.id}
+                      className="border-b border-gray-100 hover:bg-gray-50 transition"
+                    >
+                      {/* Coach name */}
+                      <td className="py-3 px-4 sticky left-0 bg-white z-10">
+                        <button
+                          onClick={() => setEditingCoach(coach)}
+                          className="flex items-center gap-3 text-left hover:text-rr-blue transition"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-rr-blue/10 text-rr-blue flex items-center justify-center text-xs font-bold flex-shrink-0">
+                            {getInitials(coach.name)}
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              {coach.name}
+                            </div>
+                          </div>
+                        </button>
+                      </td>
+
+                      {/* Role badge */}
+                      <td className="py-3 px-3">
+                        <span
+                          className={cn(
+                            "text-[10px] font-semibold px-2 py-0.5 rounded-full",
+                            badge.className
+                          )}
+                        >
+                          {badge.label}
+                        </span>
+                      </td>
+
+                      {/* Speciality */}
+                      <td className="py-3 px-3 text-gray-500 text-xs">
+                        {coach.speciality || "—"}
+                      </td>
+
+                      {/* Assignment cells */}
+                      {filteredSessions.map((session, idx) => {
+                        const sessionAssignments = assignments.filter(
+                          (a) => a.session_id === session.sessionId
+                        );
+                        const isFirstOfDate = idx === 0 || filteredSessions[idx - 1].date !== session.date;
+
+                        return (
+                          <td
+                            key={session.sessionId}
+                            className={cn(
+                              "py-3 px-1 text-center",
+                              isFirstOfDate && idx > 0 && "border-l border-gray-200"
+                            )}
+                          >
+                            {sessionAssignments.length > 0 ? (
+                              <div className="flex flex-col items-center gap-0.5">
+                                {sessionAssignments.map((a) => {
+                                  const roleBadge = COACH_ROLE_BADGES[a.coach_role] || COACH_ROLE_BADGES.assistant;
+                                  const label =
+                                    a.coach_role === "squad_coach"
+                                      ? "S"
+                                      : a.coach_role === "specialist"
+                                      ? "SP"
+                                      : `A${a.hour || ""}`;
+                                  return (
+                                    <span
+                                      key={a.id}
+                                      className={cn(
+                                        "text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none",
+                                        roleBadge.className
+                                      )}
+                                      title={`${roleBadge.label}${a.hour ? ` (Hour ${a.hour})` : ""}${a.notes ? ` — ${a.notes}` : ""}`}
+                                    >
+                                      {label}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 rounded-full bg-gray-100 border border-dashed border-gray-300 mx-auto" />
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {coaches.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                No coaches found. Add coaches via the database.
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Coach Profile Modal */}
+      {/* Coach Profile Modal — adapted for CoachRecord */}
       {editingCoach && (
-        <CoachProfileModal
+        <CoachProfileModalWrapper
           coach={editingCoach}
-          onSave={updateCoachProfile}
           onClose={() => setEditingCoach(null)}
-          canEdit={isAdmin || editingCoach.user_id === currentUserId}
+          canEdit={isAdmin}
         />
       )}
+    </div>
+  );
+}
+
+// Simple wrapper to show coach details in a modal
+function CoachProfileModalWrapper({
+  coach,
+  onClose,
+  canEdit,
+}: {
+  coach: CoachRecord;
+  onClose: () => void;
+  canEdit: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-12 h-12 rounded-full bg-rr-blue/10 text-rr-blue flex items-center justify-center text-lg font-bold">
+            {getInitials(coach.name)}
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">{coach.name}</h2>
+            <p className="text-sm text-gray-500">{coach.speciality || coach.role}</p>
+          </div>
+        </div>
+
+        {coach.email && (
+          <div className="text-sm text-gray-600 mb-2">
+            <span className="font-medium">Email:</span> {coach.email}
+          </div>
+        )}
+        {coach.bio && (
+          <div className="text-sm text-gray-600 mb-2">
+            <span className="font-medium">Bio:</span> {coach.bio}
+          </div>
+        )}
+
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

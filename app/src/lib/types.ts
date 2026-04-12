@@ -194,18 +194,23 @@ export interface CoachAvailability {
   updated_at: string;
 }
 
+export type CoachRoleInSession = "squad_coach" | "assistant" | "specialist";
+
 export interface SessionCoach {
   id: string;
   session_id: string;
-  user_id: string;
+  user_id?: string;
+  coach_id?: string;
   role: string;
+  coach_role: CoachRoleInSession;
+  hour?: number;
   confirmed: boolean;
   notes?: string;
   created_at: string;
-  // Joined fields
-  display_name?: string;
-  speciality?: string;
-  email?: string;
+  // Joined fields from sp_coaches
+  coach_name?: string;
+  coach_speciality?: string;
+  coach_email?: string;
 }
 
 export interface ProgramInvite {

@@ -434,18 +434,18 @@ export default function SessionPage() {
                   <SquadBadge key={squad.id} name={squad.name} colour={squad.colour} size="sm" />
                 ))}
               </div>
-              {coachData.coaches.length > 0 && (
+              {(coachData.coaches.length > 0 || coachData.sessionCoaches.length > 0) && (
                 <>
                   <div className="w-px h-5 bg-gray-200 dark:bg-gray-700" />
                   <SessionCoachBar
                     coaches={coachData.coaches}
                     sessionCoaches={coachData.sessionCoaches}
                     availability={coachData.coaches.map((c) => ({
-                      userId: c.user_id,
-                      status: coachData.getCoachAvailabilityForSession(c.user_id, sessionId) as AvailabilityStatus | null,
+                      userId: c.id,
+                      status: null,
                     }))}
-                    onRoster={(userId) => coachData.rosterCoach(sessionId, userId)}
-                    onUnroster={(userId) => coachData.unrosterCoach(sessionId, userId)}
+                    onRoster={(coachId) => coachData.rosterCoach(sessionId, coachId)}
+                    onUnroster={(coachId) => coachData.unrosterCoach(sessionId, coachId)}
                     isAdmin={isAdmin}
                   />
                 </>
