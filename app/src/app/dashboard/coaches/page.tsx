@@ -98,11 +98,11 @@ export default function CoachesPage() {
   const filteredSessions = useMemo(() => {
     if (viewMode === "all") return sessions;
     const today = new Date().toISOString().split("T")[0];
-    return sessions.filter((s) => s.date >= today);
+    return sessions.filter((s: SessionSlot) => s.date >= today);
   }, [sessions, viewMode]);
 
   const sessionIds = useMemo(
-    () => filteredSessions.map((s) => s.sessionId),
+    () => filteredSessions.map((s: SessionSlot) => s.sessionId),
     [filteredSessions]
   );
 
@@ -146,9 +146,9 @@ export default function CoachesPage() {
   // Summary stats
   const totalCoaches = coaches.length;
   const squadCoachCount = coaches.filter(
-    (c) => c.role === "assistant_coach" && c.speciality?.toLowerCase().includes("squad")
+    (c: CoachRecord) => c.role === "assistant_coach" && c.speciality?.toLowerCase().includes("squad")
   ).length;
-  const specialistCount = coaches.filter((c) => c.role === "guest_coach").length;
+  const specialistCount = coaches.filter((c: CoachRecord) => c.role === "guest_coach").length;
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 py-6">
