@@ -217,7 +217,7 @@ export async function GET(request: NextRequest) {
     const { error: deleteError } = await supabase
       .from("sp_session_coaches")
       .delete()
-      .neq("id", "");
+      .gte("created_at", "2000-01-01");
 
     if (deleteError) {
       console.error("Error deleting existing session coaches:", deleteError);
