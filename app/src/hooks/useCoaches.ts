@@ -47,18 +47,27 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
     }
   }, []);
 
-  // Fetch availability for a set of sessions
+  // Fetch availability for a set of sessions (batched to avoid URL length limits)
   const fetchAvailability = useCallback(async () => {
     if (!programId || !sessionIds || sessionIds.length === 0) return;
-    const { data, error } = await supabase
-      .from("sp_coach_availability")
-      .select("*")
-      .eq("program_id", programId)
-      .in("session_id", sessionIds);
 
-    if (!error && data) {
-      setAvailability(data as CoachAvailability[]);
+    const BATCH_SIZE = 25;
+    const allData: CoachAvailability[] = [];
+
+    for (let i = 0; i < sessionIds.length; i += BATCH_SIZE) {
+      const batch = sessionIds.slice(i, i + BATCH_SIZE);
+      const { data, error } = await supabase
+        .from("sp_coach_availability")
+        .select("*")
+        .eq("program_id", programId)
+        .in("session_id", batch);
+
+      if (!error && data) {
+        allData.push(...(data as CoachAvailability[]));
+      }
     }
+
+    setAvailability(allData);
   }, [programId, sessionIds]);
 
   // Fetch coaches rostered to a specific session (with coach name joined)
@@ -94,34 +103,44 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
   }, [sessionId]);
 
   // Fetch all session coaches for multiple sessions (for the roster table)
+  // Batches the .in() query to avoid URL length limits with many session IDs
   const fetchAllSessionCoaches = useCallback(async () => {
     if (!sessionIds || sessionIds.length === 0) return;
-    const { data, error } = await supabase
-      .from("sp_session_coaches")
-      .select("*, sp_coaches(name, speciality, email)")
-      .in("session_id", sessionIds);
 
-    if (!error && data) {
-      const mapped = (data as Record<string, unknown>[]).map((row) => {
-        const coach = row.sp_coaches as { name?: string; speciality?: string; email?: string } | null;
-        return {
-          id: row.id as string,
-          session_id: row.session_id as string,
-          user_id: row.user_id as string | undefined,
-          coach_id: row.coach_id as string | undefined,
-          role: row.role as string,
-          coach_role: (row.coach_role || "assistant") as SessionCoach["coach_role"],
-          hour: row.hour as number | undefined,
-          confirmed: row.confirmed as boolean,
-          notes: row.notes as string | undefined,
-          created_at: row.created_at as string,
-          coach_name: coach?.name,
-          coach_speciality: coach?.speciality,
-          coach_email: coach?.email,
-        } satisfies SessionCoach;
-      });
-      setSessionCoaches(mapped);
+    const BATCH_SIZE = 25;
+    const allRows: Record<string, unknown>[] = [];
+
+    for (let i = 0; i < sessionIds.length; i += BATCH_SIZE) {
+      const batch = sessionIds.slice(i, i + BATCH_SIZE);
+      const { data, error } = await supabase
+        .from("sp_session_coaches")
+        .select("*, sp_coaches(name, speciality, email)")
+        .in("session_id", batch);
+
+      if (!error && data) {
+        allRows.push(...(data as Record<string, unknown>[]));
+      }
     }
+
+    const mapped = allRows.map((row) => {
+      const coach = row.sp_coaches as { name?: string; speciality?: string; email?: string } | null;
+      return {
+        id: row.id as string,
+        session_id: row.session_id as string,
+        user_id: row.user_id as string | undefined,
+        coach_id: row.coach_id as string | undefined,
+        role: row.role as string,
+        coach_role: (row.coach_role || "assistant") as SessionCoach["coach_role"],
+        hour: row.hour as number | undefined,
+        confirmed: row.confirmed as boolean,
+        notes: row.notes as string | undefined,
+        created_at: row.created_at as string,
+        coach_name: coach?.name,
+        coach_speciality: coach?.speciality,
+        coach_email: coach?.email,
+      } satisfies SessionCoach;
+    });
+    setSessionCoaches(mapped);
   }, [sessionIds]);
 
   // Set availability for a coach on a specific session
