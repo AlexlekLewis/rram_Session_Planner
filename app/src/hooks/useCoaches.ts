@@ -30,6 +30,7 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
   const supabaseRef = useRef(createClient());
   const supabase = supabaseRef.current;
   const [coaches, setCoaches] = useState<CoachRecord[]>([]);
+  const coachesRef = useRef<CoachRecord[]>([]);
   const [availability, setAvailability] = useState<CoachAvailability[]>([]);
   const [sessionCoaches, setSessionCoaches] = useState<SessionCoach[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +44,9 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
       .order("name");
 
     if (!error && data) {
-      setCoaches(data as CoachRecord[]);
+      const records = data as CoachRecord[];
+      coachesRef.current = records;
+      setCoaches(records);
     }
   }, []);
 
@@ -70,23 +73,17 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
     setAvailability(allData);
   }, [programId, sessionIds]);
 
-  // Fetch coaches rostered to a specific session (with coach name joined)
-  const fetchSessionCoaches = useCallback(async () => {
-    if (!sessionId) return;
-    const { data, error } = await supabase
-      .from("sp_session_coaches")
-      .select("*, sp_coaches(name, speciality, email)")
-      .eq("session_id", sessionId);
-
-    if (!error && data) {
-      // Flatten the joined coach data
-      const mapped = (data as Record<string, unknown>[]).map((row) => {
-        const coach = row.sp_coaches as { name?: string; speciality?: string; email?: string } | null;
+  // Helper: map raw sp_session_coaches rows and enrich with coach lookup
+  const mapSessionCoachRows = useCallback(
+    (rows: Record<string, unknown>[], coachLookup: Map<string, CoachRecord>) => {
+      return rows.map((row) => {
+        const cId = row.coach_id as string | undefined;
+        const coach = cId ? coachLookup.get(cId) : undefined;
         return {
           id: row.id as string,
           session_id: row.session_id as string,
           user_id: row.user_id as string | undefined,
-          coach_id: row.coach_id as string | undefined,
+          coach_id: cId,
           role: row.role as string,
           coach_role: (row.coach_role || "assistant") as SessionCoach["coach_role"],
           hour: row.hour as number | undefined,
@@ -98,9 +95,23 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
           coach_email: coach?.email,
         } satisfies SessionCoach;
       });
-      setSessionCoaches(mapped);
+    },
+    []
+  );
+
+  // Fetch coaches rostered to a specific session
+  const fetchSessionCoaches = useCallback(async () => {
+    if (!sessionId) return;
+    const { data, error } = await supabase
+      .from("sp_session_coaches")
+      .select("*")
+      .eq("session_id", sessionId);
+
+    if (!error && data) {
+      const coachLookup = new Map(coachesRef.current.map((c) => [c.id, c]));
+      setSessionCoaches(mapSessionCoachRows(data as Record<string, unknown>[], coachLookup));
     }
-  }, [sessionId]);
+  }, [sessionId, mapSessionCoachRows]);
 
   // Fetch all session coaches for multiple sessions (for the roster table)
   // Batches the .in() query to avoid URL length limits with many session IDs
@@ -114,7 +125,7 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
       const batch = sessionIds.slice(i, i + BATCH_SIZE);
       const { data, error } = await supabase
         .from("sp_session_coaches")
-        .select("*, sp_coaches(name, speciality, email)")
+        .select("*")
         .in("session_id", batch);
 
       if (!error && data) {
@@ -122,26 +133,9 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
       }
     }
 
-    const mapped = allRows.map((row) => {
-      const coach = row.sp_coaches as { name?: string; speciality?: string; email?: string } | null;
-      return {
-        id: row.id as string,
-        session_id: row.session_id as string,
-        user_id: row.user_id as string | undefined,
-        coach_id: row.coach_id as string | undefined,
-        role: row.role as string,
-        coach_role: (row.coach_role || "assistant") as SessionCoach["coach_role"],
-        hour: row.hour as number | undefined,
-        confirmed: row.confirmed as boolean,
-        notes: row.notes as string | undefined,
-        created_at: row.created_at as string,
-        coach_name: coach?.name,
-        coach_speciality: coach?.speciality,
-        coach_email: coach?.email,
-      } satisfies SessionCoach;
-    });
-    setSessionCoaches(mapped);
-  }, [sessionIds]);
+    const coachLookup = new Map(coachesRef.current.map((c) => [c.id, c]));
+    setSessionCoaches(mapSessionCoachRows(allRows, coachLookup));
+  }, [sessionIds, mapSessionCoachRows]);
 
   // Set availability for a coach on a specific session
   const setCoachAvailability = useCallback(
@@ -253,12 +247,12 @@ export function useCoaches({ programId, sessionIds, sessionId }: UseCoachesOptio
     [sessionCoaches]
   );
 
-  // Initial fetch
+  // Initial fetch — coaches must load first so session coach lookups can resolve names
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchCoaches(), fetchAvailability(), fetchSessionCoaches(), fetchAllSessionCoaches()]).finally(
-      () => setLoading(false)
-    );
+    fetchCoaches()
+      .then(() => Promise.all([fetchAvailability(), fetchSessionCoaches(), fetchAllSessionCoaches()]))
+      .finally(() => setLoading(false));
   }, [fetchCoaches, fetchAvailability, fetchSessionCoaches, fetchAllSessionCoaches]);
 
   return {
