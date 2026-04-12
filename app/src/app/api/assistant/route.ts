@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-opus-4-20250514",
         max_tokens: 4096,
         system: systemPrompt,
         messages: messages.slice(-20), // Trim to last 20 messages to manage context
