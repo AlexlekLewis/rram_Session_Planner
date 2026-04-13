@@ -22,6 +22,7 @@ interface MonthCalendarProps {
   compact?: boolean;
   onSessionClick?: (sessionId: string) => void;
   onDropSession?: (sessionId: string, targetDate: string) => void;
+  sessionCoaches?: Record<string, { name: string; speciality: string; role: string }[]>;
   label?: string;
 }
 
@@ -36,6 +37,7 @@ export function MonthCalendar({
   compact = false,
   onSessionClick,
   onDropSession,
+  sessionCoaches,
   label,
 }: MonthCalendarProps) {
   const today = useMemo(() => new Date(), []);
@@ -65,7 +67,7 @@ export function MonthCalendar({
   };
 
   const dayLabels = compact ? DAYS_SHORT : DAYS_OF_WEEK;
-  const cellHeight = compact ? "h-20" : "h-28";
+  const cellHeight = compact ? "h-20" : "h-36";
 
   return (
     <div>
@@ -130,6 +132,7 @@ export function MonthCalendar({
                       compact={compact}
                       onSessionClick={onSessionClick}
                       onDropSession={onDropSession}
+                      sessionCoaches={sessionCoaches}
                     />
                   </td>
                 );

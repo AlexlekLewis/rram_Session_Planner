@@ -15,6 +15,7 @@ interface DayCellProps {
   compact?: boolean;
   onSessionClick?: (sessionId: string) => void;
   onDropSession?: (sessionId: string, targetDate: string) => void;
+  sessionCoaches?: Record<string, { name: string; speciality: string; role: string }[]>;
 }
 
 export function DayCell({
@@ -26,6 +27,7 @@ export function DayCell({
   compact = false,
   onSessionClick,
   onDropSession,
+  sessionCoaches,
 }: DayCellProps) {
   const dayNumber = date.getDate();
   const [showPopover, setShowPopover] = useState(false);
@@ -48,6 +50,29 @@ export function DayCell({
     return session.squad_ids
       .map((squadId) => squads.find((s) => s.id === squadId))
       .filter(Boolean) as Squad[];
+  };
+
+  /** Get formatted coach names for a session (specialists listed first) */
+  const getCoachesForSession = (session: Session): string[] => {
+    const rostered = sessionCoaches?.[session.id] || [];
+    if (rostered.length > 0) {
+      const roleOrder: Record<string, number> = { guest_coach: 0, head_coach: 1, assistant_coach: 2 };
+      const sorted = [...rostered].sort(
+        (a, b) => (roleOrder[a.role] ?? 3) - (roleOrder[b.role] ?? 3)
+      );
+      return sorted.map((c) => {
+        const parts = c.name.trim().split(/\s+/);
+        return parts.length > 1 ? `${parts[0][0]}. ${parts[parts.length - 1]}` : parts[0];
+      });
+    }
+    // Fallback to specialist_coaches JSONB on session
+    if (session.specialist_coaches?.length) {
+      return session.specialist_coaches.map((sc) => {
+        const parts = sc.name.trim().split(/\s+/);
+        return parts.length > 1 ? `${parts[0][0]}. ${parts[parts.length - 1]}` : parts[0];
+      });
+    }
+    return [];
   };
 
   const handleCellClick = () => {
@@ -105,12 +130,18 @@ export function DayCell({
             {sessions.map((session) => {
               const sessionSquads = getSquadsForSession(session);
               const primaryColor = sessionSquads[0]?.colour || "#9CA3AF";
+              const coaches = getCoachesForSession(session);
+              const tooltipLines = [
+                `${formatTimeShort(session.start_time)} — ${sessionSquads.map(s => s.name).join(", ")}`,
+                session.theme ? `Theme: ${session.theme}` : null,
+                coaches.length > 0 ? `Coaches: ${coaches.join(", ")}` : null,
+              ].filter(Boolean).join("\n");
               return (
                 <div
                   key={session.id}
                   className="w-5 h-5 rounded-sm cursor-pointer hover:scale-110 transition-transform"
                   style={{ backgroundColor: primaryColor }}
-                  title={`${formatTimeShort(session.start_time)} — ${sessionSquads.map(s => s.name).join(", ")}`}
+                  title={tooltipLines}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSessionClick?.(session.id);
@@ -163,11 +194,12 @@ export function DayCell({
           {sessions.map((session) => {
             const sessionSquads = getSquadsForSession(session);
             const primaryColor = sessionSquads[0]?.colour || "#9CA3AF";
+            const coaches = getCoachesForSession(session);
 
             return (
               <div
                 key={session.id}
-                className="flex items-center gap-1 rounded-sm px-1 py-0.5 min-h-[24px] hover:brightness-95 transition-all cursor-pointer"
+                className="flex flex-col rounded-sm px-1 py-0.5 min-h-[24px] hover:brightness-95 transition-all cursor-pointer gap-px"
                 style={{
                   backgroundColor: `${primaryColor}18`,
                   borderLeft: `3px solid ${primaryColor}`,
@@ -183,27 +215,32 @@ export function DayCell({
                   onSessionClick?.(session.id);
                 }}
               >
-                {/* Squad dots */}
-                <div className="flex gap-0.5 flex-shrink-0">
-                  {sessionSquads.map((squad) => (
-                    <SquadBadge
-                      key={squad.id}
-                      name={squad.name}
-                      colour={squad.colour}
-                      size="xs"
-                    />
-                  ))}
+                {/* Row 1: Squad dots + Time + Theme */}
+                <div className="flex items-center gap-1 min-w-0">
+                  <div className="flex gap-0.5 flex-shrink-0">
+                    {sessionSquads.map((squad) => (
+                      <SquadBadge
+                        key={squad.id}
+                        name={squad.name}
+                        colour={squad.colour}
+                        size="xs"
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[10px] font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    {formatTimeShort(session.start_time)}
+                  </span>
+                  {session.theme && (
+                    <span className="text-[10px] italic text-gray-500 dark:text-gray-400 truncate">
+                      {session.theme}
+                    </span>
+                  )}
                 </div>
 
-                {/* Time */}
-                <span className="text-[10px] font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                  {formatTimeShort(session.start_time)}
-                </span>
-
-                {/* Specialist coach (first name only) */}
-                {session.specialist_coaches?.[0] && (
-                  <span className="text-[10px] text-gray-500 truncate">
-                    {session.specialist_coaches[0].name.split(" ")[0]}
+                {/* Row 2: Coaches (specialists first) */}
+                {coaches.length > 0 && (
+                  <span className="text-[9px] text-gray-400 dark:text-gray-500 truncate leading-tight">
+                    {coaches.join(" · ")}
                   </span>
                 )}
               </div>
@@ -224,25 +261,31 @@ export function DayCell({
           </p>
           {sessions.map((session) => {
             const sessionSquads = getSquadsForSession(session);
+            const coaches = getCoachesForSession(session);
             return (
               <button
                 key={session.id}
-                className="w-full text-left px-2 py-1.5 rounded hover:bg-blue-50 dark:hover:bg-gray-700 transition flex items-center gap-2"
+                className="w-full text-left px-2 py-1.5 rounded hover:bg-blue-50 dark:hover:bg-gray-700 transition"
                 onClick={() => {
                   setShowPopover(false);
                   onSessionClick?.(session.id);
                 }}
               >
-                <div className="flex gap-0.5">
-                  {sessionSquads.map((sq) => (
-                    <SquadBadge key={sq.id} name={sq.name} colour={sq.colour} size="xs" />
-                  ))}
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-0.5">
+                    {sessionSquads.map((sq) => (
+                      <SquadBadge key={sq.id} name={sq.name} colour={sq.colour} size="xs" />
+                    ))}
+                  </div>
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                    {formatTimeShort(session.start_time)}–{formatTimeShort(session.end_time)}
+                  </span>
                 </div>
-                <span className="text-xs font-medium text-gray-700">
-                  {formatTimeShort(session.start_time)}–{formatTimeShort(session.end_time)}
-                </span>
                 {session.theme && (
-                  <span className="text-[10px] text-gray-500 truncate">{session.theme}</span>
+                  <div className="text-[10px] italic text-gray-500 dark:text-gray-400 mt-0.5 truncate">{session.theme}</div>
+                )}
+                {coaches.length > 0 && (
+                  <div className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">{coaches.join(" · ")}</div>
                 )}
               </button>
             );

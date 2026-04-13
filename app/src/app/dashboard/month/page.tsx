@@ -20,6 +20,7 @@ export default function MonthPage() {
   const [phases, setPhases] = useState<Phase[]>([]);
   const [squads, setSquads] = useState<Squad[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionCoaches, setSessionCoaches] = useState<Record<string, { name: string; speciality: string; role: string }[]>>({});
   const [loading, setLoading] = useState(true);
   const [currentPhase, setCurrentPhase] = useState<Phase | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("overview");
@@ -61,6 +62,35 @@ export default function MonthPage() {
             .lte("date", programData.end_date)
             .order("date");
           setSessions(sessionsData || []);
+
+          // Fetch rostered coaches for calendar display
+          const { data: rosterData } = await supabase
+            .from("sp_session_coaches")
+            .select("session_id, user_id, role");
+
+          const { data: membersData } = await supabase
+            .from("sp_program_members")
+            .select("user_id, display_name, speciality, role")
+            .eq("program_id", programData.id)
+            .eq("status", "active");
+
+          // Build session → coaches lookup for calendar cells
+          type MemberInfo = { user_id: string; display_name?: string; speciality?: string; role: string };
+          const memberLookup = new Map<string, MemberInfo>(
+            (membersData || []).map((m: MemberInfo) => [m.user_id, m])
+          );
+          const coachMap: Record<string, { name: string; speciality: string; role: string }[]> = {};
+          for (const rc of (rosterData || []) as { session_id: string; user_id: string; role: string }[]) {
+            const member = memberLookup.get(rc.user_id);
+            if (!member) continue;
+            if (!coachMap[rc.session_id]) coachMap[rc.session_id] = [];
+            coachMap[rc.session_id].push({
+              name: member.display_name || "Unknown",
+              speciality: member.speciality || "",
+              role: member.role || rc.role,
+            });
+          }
+          setSessionCoaches(coachMap);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -299,6 +329,7 @@ export default function MonthPage() {
                     label={monthLabel}
                     onSessionClick={handleSessionClick}
                     onDropSession={handleDropSession}
+                    sessionCoaches={sessionCoaches}
                   />
                 );
               })}
@@ -312,6 +343,7 @@ export default function MonthPage() {
               compact={false}
               onSessionClick={handleSessionClick}
               onDropSession={handleDropSession}
+              sessionCoaches={sessionCoaches}
             />
           )}
         </div>
