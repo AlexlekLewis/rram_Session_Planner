@@ -114,15 +114,22 @@ export function SessionGrid({
   );
 
   return (
-    <div className="h-full bg-white dark:bg-gray-900 overflow-auto relative">
+    <div
+      data-grid-root
+      className="h-full bg-white dark:bg-gray-900 overflow-auto relative"
+    >
       {/* Single CSS grid so time axis + grid canvas share one scroll container.
           Corner, lane headers, and time axis use `sticky` to stay pinned while
-          the scroll container moves the grid content underneath them. */}
+          the scroll container moves the grid content underneath them.
+          H2 FIX (audit 2026-04-17): removed unconditional minmax(600px, 1fr).
+          Lane sizing is driven by the canvas's per-lane minmax inside, so
+          narrow viewports shrink gracefully and only scroll horizontally
+          when lane_count × 72px genuinely exceeds the viewport. */}
       <div
         className="relative"
         style={{
           display: "grid",
-          gridTemplateColumns: "64px minmax(600px, 1fr)",
+          gridTemplateColumns: "64px 1fr",
           gridTemplateRows: "auto auto",
         }}
       >
@@ -134,6 +141,7 @@ export function SessionGrid({
 
         {/* Lane Headers — sticky top, scrolls horizontally with grid */}
         <div
+          data-lane-header
           className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700"
           style={{ gridColumn: 2, gridRow: 1 }}
         >
@@ -142,6 +150,7 @@ export function SessionGrid({
 
         {/* Time Axis — sticky left, scrolls vertically with grid */}
         <div
+          data-time-axis
           className="sticky left-0 z-10 border-r border-gray-200 dark:border-gray-700"
           style={{ gridColumn: 1, gridRow: 2 }}
         >
