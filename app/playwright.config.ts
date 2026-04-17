@@ -33,6 +33,32 @@ export default defineConfig({
       },
       dependencies: ["setup"],
     },
+    // Phase 3 mobile projects (audit 2026-04-17).
+    // Scope on CI with --project=iphone-se etc. to keep runtime predictable.
+    {
+      name: "iphone-se",
+      use: {
+        ...devices["iPhone SE"],
+        storageState: "./tests/e2e/.auth/user.json",
+      },
+      dependencies: ["setup"],
+    },
+    {
+      name: "iphone-14-pro",
+      use: {
+        ...devices["iPhone 14 Pro"],
+        storageState: "./tests/e2e/.auth/user.json",
+      },
+      dependencies: ["setup"],
+    },
+    {
+      name: "pixel-7",
+      use: {
+        ...devices["Pixel 7"],
+        storageState: "./tests/e2e/.auth/user.json",
+      },
+      dependencies: ["setup"],
+    },
   ],
   // Only start local dev server when testing against localhost
   ...(isRemote
