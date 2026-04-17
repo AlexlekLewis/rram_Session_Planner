@@ -5,6 +5,24 @@ import { SessionBlock, SaveStatus } from "@/lib/types"
 import { SAVE_DEBOUNCE_MS } from "@/lib/constants"
 import { createClient } from "@/lib/supabase/client"
 
+// C1+H7 FIX: bounded retry policy for transient errors.
+const MAX_TRANSIENT_RETRIES = 3
+const BACKOFF_MS = [1000, 2000, 4000]
+
+/**
+ * Classify a Supabase/PostgREST error as transient (retry-worthy) or
+ * permanent (fail-loud). Defaults to permanent for unknown errors so
+ * we never accidentally retry a deterministic failure forever.
+ */
+function isTransientError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (/row-level security/i.test(msg)) return false
+  if (/permission/i.test(msg)) return false
+  if (/not authorized/i.test(msg)) return false
+  if (/network|fetch|timeout|aborted|5\d\d/i.test(msg)) return true
+  return false
+}
+
 /**
  * Diff-based auto-save hook.
  *
@@ -33,9 +51,16 @@ export function useAutoSave(
   const isSavingRef = useRef(false)
   const blocksRef = useRef<SessionBlock[]>(blocks)
   blocksRef.current = blocks
+  // C1+H7 FIX: retry-policy state.
+  const retryCountRef = useRef(0)
+  const permanentErrorRef = useRef(false)
 
   const performSave = useCallback(async () => {
     if (!isDirty || isSavingRef.current) return
+
+    // C1+H7 FIX: a new save attempt clears the permanent-error latch so
+    // that the user's next edit (or explicit retry) gets a fresh try.
+    permanentErrorRef.current = false
 
     isSavingRef.current = true
     setSaveStatus("saving")
@@ -149,8 +174,25 @@ export function useAutoSave(
     } catch (error) {
       console.error("Error saving blocks:", error)
       setSaveStatus("error")
+
+      // C1+H7 FIX: classify the error so the finally block can decide
+      // whether to reschedule or latch permanent.
+      if (isTransientError(error) && retryCountRef.current < MAX_TRANSIENT_RETRIES) {
+        // Let finally schedule the backoff.
+      } else {
+        permanentErrorRef.current = true
+        retryCountRef.current = 0
+      }
     } finally {
       isSavingRef.current = false
+
+      // C1+H7 FIX: do not reschedule on permanent errors. The retry loop
+      // used to hammer Supabase forever on RLS denials; now it stops until
+      // the user edits again (which clears the latch) or the caller invokes
+      // the exported retry() function.
+      if (permanentErrorRef.current) {
+        return
+      }
 
       // DATA LOSS FIX: If blocks changed while we were saving, the debounce
       // effect already fired and was cleaned up, so no new timer was set.
@@ -170,15 +212,24 @@ export function useAutoSave(
         )
 
       if (hasUnsavedChanges) {
+        // C1+H7 FIX: on transient-error retry, use exponential backoff.
+        const inErrorRetry = saveStatus === "error"
+        const delay = inErrorRetry
+          ? BACKOFF_MS[Math.min(retryCountRef.current, BACKOFF_MS.length - 1)]
+          : SAVE_DEBOUNCE_MS
+        if (inErrorRetry) retryCountRef.current += 1
+
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current)
         }
         debounceTimerRef.current = setTimeout(() => {
           performSave()
-        }, SAVE_DEBOUNCE_MS)
+        }, delay)
+      } else {
+        retryCountRef.current = 0
       }
     }
-  }, [sessionId, isDirty, onBlocksSaved])
+  }, [sessionId, isDirty, onBlocksSaved, saveStatus])
 
   // Initialize last-saved snapshot ONLY on first load (when isDirty is false).
   // BUG-011 ROOT CAUSE FIX: The previous version initialized the snapshot whenever
