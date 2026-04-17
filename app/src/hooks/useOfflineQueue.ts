@@ -13,6 +13,13 @@ interface QueuedAction {
   type: "upsert" | "delete"
   sessionId: string
   blocks?: SessionBlock[]
+  /**
+   * IDs that were on the server the last time this client successfully
+   * saved. Used on flush to compute a targeted delete set so we do NOT
+   * wipe blocks that other coaches added while we were offline.
+   * See audit fix C3.
+   */
+  lastSavedIds?: string[]
   blockId?: string
   timestamp: number
 }
@@ -92,17 +99,24 @@ export function useOfflineQueue() {
   }, [])
 
   // Enqueue an upsert action for when we're back online
-  const enqueueUpsert = useCallback(async (sessionId: string, blocks: SessionBlock[]) => {
-    const action: QueuedAction = {
-      id: `upsert_${sessionId}_${Date.now()}`,
-      type: "upsert",
-      sessionId,
-      blocks,
-      timestamp: Date.now(),
-    }
-    await addToQueue(action)
-    setQueueSize((prev) => prev + 1)
-  }, [])
+  // C3 FIX: lastSavedIds is now required — it's the snapshot of block IDs
+  // present on the server at the moment of queueing, and is used to compute
+  // a targeted delete set on flush (see flushQueue).
+  const enqueueUpsert = useCallback(
+    async (sessionId: string, blocks: SessionBlock[], lastSavedIds: string[] = []) => {
+      const action: QueuedAction = {
+        id: `upsert_${sessionId}_${Date.now()}`,
+        type: "upsert",
+        sessionId,
+        blocks,
+        lastSavedIds,
+        timestamp: Date.now(),
+      }
+      await addToQueue(action)
+      setQueueSize((prev) => prev + 1)
+    },
+    []
+  )
 
   // Enqueue a delete action
   const enqueueDelete = useCallback(async (sessionId: string, blockId: string) => {
@@ -137,38 +151,55 @@ export function useOfflineQueue() {
       for (const action of sorted) {
         try {
           if (action.type === "upsert" && action.blocks) {
-            // Delete all blocks for session, then re-insert
-            await supabase
-              .from("sp_session_blocks")
-              .delete()
-              .eq("session_id", action.sessionId)
+            // C3 FIX: Diff-based upsert + targeted delete.
+            // Previously we did delete().eq("session_id") then insert(), which
+            // wiped blocks that other coaches had added while we were offline.
+            // Now we upsert the current set by id, then delete only the ids
+            // that were present at queue time but are no longer in the set.
+            const currentIds = new Set(action.blocks.map((b) => b.id))
+            const prevIds = new Set(action.lastSavedIds ?? [])
+            const toDelete = [...prevIds].filter((id) => !currentIds.has(id))
 
             if (action.blocks.length > 0) {
-              await supabase.from("sp_session_blocks").insert(
-                action.blocks.map((block) => ({
-                  id: block.id,
-                  session_id: block.session_id,
-                  activity_id: block.activity_id || null,
-                  name: block.name,
-                  lane_start: block.lane_start,
-                  lane_end: block.lane_end,
-                  time_start: block.time_start,
-                  time_end: block.time_end,
-                  colour: block.colour,
-                  category: block.category,
-                  tier: block.tier,
-                  other_location: block.other_location || null,
-                  coaching_notes: block.coaching_notes || null,
-                  coaching_points: block.coaching_points || [],
-                  player_groups: block.player_groups || [],
-                  equipment: block.equipment || [],
-                  coach_assigned: block.coach_assigned || null,
-                  sort_order: block.sort_order,
-                  created_by: block.created_by || null,
-                  created_at: block.created_at,
-                  updated_at: block.updated_at,
-                }))
-              )
+              const { error: upsertError } = await supabase
+                .from("sp_session_blocks")
+                .upsert(
+                  action.blocks.map((block) => ({
+                    id: block.id,
+                    session_id: block.session_id,
+                    activity_id: block.activity_id || null,
+                    name: block.name,
+                    lane_start: block.lane_start,
+                    lane_end: block.lane_end,
+                    time_start: block.time_start,
+                    time_end: block.time_end,
+                    colour: block.colour,
+                    category: block.category,
+                    tier: block.tier,
+                    other_location: block.other_location || null,
+                    coaching_notes: block.coaching_notes || null,
+                    coaching_points: block.coaching_points || [],
+                    player_groups: block.player_groups || [],
+                    equipment: block.equipment || [],
+                    coach_assigned: block.coach_assigned || null,
+                    sort_order: block.sort_order,
+                    created_by: block.created_by || null,
+                  })),
+                  { onConflict: "id" }
+                )
+                .select("id")
+
+              if (upsertError) throw upsertError
+            }
+
+            if (toDelete.length > 0) {
+              const { error: deleteError } = await supabase
+                .from("sp_session_blocks")
+                .delete()
+                .in("id", toDelete)
+                .select("id")
+
+              if (deleteError) throw deleteError
             }
           } else if (action.type === "delete" && action.blockId) {
             await supabase
