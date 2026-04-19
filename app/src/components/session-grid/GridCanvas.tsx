@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback } from "react";
-import { Session, SessionBlock, BlockPosition } from "@/lib/types";
+import { Session, SessionBlock, BlockPosition, Activity } from "@/lib/types";
 import { GridBlock } from "./GridBlock";
 import {
   generateTimeSlots,
@@ -24,6 +24,22 @@ interface GridCanvasProps {
   onSelectBlocks: (ids: string[]) => void;
   onContextMenu: (block: SessionBlock, position: { x: number; y: number }) => void;
   hasCollision: (position: BlockPosition, excludeId?: string) => boolean;
+  /**
+   * Called when an activity card is dropped onto the grid from the
+   * Activity Library panel. The grid parses the activity JSON, computes
+   * lane/time from the cursor, and hands the caller the full context so
+   * it can open the tier selector modal.
+   *
+   * Optional — falsy means drag-drop is disabled (e.g. read-only mode).
+   */
+  onLibraryDrop?: (
+    activity: Activity,
+    laneStart: number,
+    laneEnd: number,
+    timeStart: string,
+    timeEnd: string,
+    position: { x: number; y: number }
+  ) => void;
 }
 
 export function GridCanvas({
@@ -36,6 +52,7 @@ export function GridCanvas({
   onSelectBlocks,
   onContextMenu,
   hasCollision,
+  onLibraryDrop,
 }: GridCanvasProps) {
   const timeSlots = generateTimeSlots(session.start_time, session.end_time);
   const totalRows = timeSlots.length;
@@ -242,6 +259,79 @@ export function GridCanvas({
     [onContextMenu]
   );
 
+  // Drag-over: required for the drop event to fire at all. Showing
+  // "copy" cursor feedback also tells the user they're over a valid target.
+  // Without this handler the Activity Library drop silently no-ops.
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!onLibraryDrop) return;
+      // Only respond to activity drags — avoids capturing unrelated drags (files, text).
+      const types = e.dataTransfer.types;
+      if (!types.includes("application/activity-json") && !types.includes("application/activity-id")) {
+        return;
+      }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [onLibraryDrop]
+  );
+
+  // Drop: parse the activity JSON, compute lane/time from cursor, and
+  // call the parent's onLibraryDrop so it can open the tier selector.
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!onLibraryDrop) return;
+      const raw = e.dataTransfer.getData("application/activity-json");
+      if (!raw) return;
+      e.preventDefault();
+
+      let activity: Activity;
+      try {
+        activity = JSON.parse(raw) as Activity;
+      } catch {
+        console.warn("Library drop: could not parse activity JSON");
+        return;
+      }
+
+      // Reuse the mouse-coord → cell helper. Synthesise the minimal
+      // MouseEvent shape the helper expects.
+      const cell = getCellFromMouse({
+        clientX: e.clientX,
+        clientY: e.clientY,
+      } as React.MouseEvent);
+      if (!cell) return;
+
+      // Lanes: honour the activity's default_lanes, clamp to grid bounds.
+      const defaultLanes = Math.max(1, Math.min(TOTAL_LANES, activity.default_lanes || 1));
+      const laneStart = Math.max(1, Math.min(TOTAL_LANES - defaultLanes + 1, cell.lane));
+      const laneEnd = laneStart + defaultLanes - 1;
+
+      // Time: honour default_duration_mins. Snap to grid increments, clamp
+      // so the block doesn't extend past the session's end_time.
+      const timeStart = timeSlots[cell.timeIndex];
+      if (!timeStart) return;
+      const durationMins = Math.max(
+        TIME_INCREMENT_MINUTES,
+        activity.default_duration_mins || 20
+      );
+      const [h, m] = timeStart.split(":").map(Number);
+      const endMins = h * 60 + m + durationMins;
+      let timeEnd = `${Math.floor(endMins / 60).toString().padStart(2, "0")}:${(endMins % 60).toString().padStart(2, "0")}`;
+      // Clamp against session end_time
+      if (timeEnd > session.end_time) timeEnd = session.end_time;
+
+      onLibraryDrop(
+        activity,
+        laneStart,
+        laneEnd,
+        timeStart,
+        timeEnd,
+        { x: e.clientX, y: e.clientY }
+      );
+    },
+    [onLibraryDrop, getCellFromMouse, timeSlots, session.end_time]
+  );
+
   // Resize handlers
   const handleResizeStart = useCallback(
     (e: React.MouseEvent, blockId: string, edge: "bottom" | "right" | "corner") => {
@@ -262,6 +352,8 @@ export function GridCanvas({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onContextMenu={(e) => e.preventDefault()}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       {/* CSS Grid */}
       <div
