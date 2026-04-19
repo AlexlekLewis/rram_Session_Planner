@@ -506,12 +506,15 @@ export default function SessionPage() {
           />
         </div>
 
-        {/* Block Detail Panel — inline sibling, pushes grid up instead of overlaying */}
-        {selectedBlock && (
+        {/* Block Detail Modal — centered, ESC/backdrop dismisses, supports manual time/lane edits */}
+        {selectedBlock && session && (
           <BlockDetailPanel
             block={selectedBlock}
+            sessionStart={session.start_time}
+            sessionEnd={session.end_time}
             onUpdate={updateBlock}
             onClose={() => blockManager.setSelectedBlockIds([])}
+            hasCollision={blockManager.hasCollision}
           />
         )}
       </div>

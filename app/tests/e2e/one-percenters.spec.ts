@@ -87,8 +87,8 @@ test.describe("1%ers — UX details", () => {
     await expect(modal).not.toBeVisible({ timeout: 2_000 });
   });
 
-  // ---- HIGH-002c: BlockDetailPanel SHOULD close on ESC (currently fails) ----
-  test("HIGH-002c — [EXPECTED FAIL] BlockDetailPanel closes on ESC", async ({ page }) => {
+  // ---- HIGH-002c: BlockDetailPanel closes on ESC (now a modal) --------
+  test("HIGH-002c — BlockDetailPanel closes on ESC", async ({ page }) => {
     await openFirstSession(page);
 
     // Open any block's detail panel — find a rendered block via test ID or class
@@ -106,8 +106,8 @@ test.describe("1%ers — UX details", () => {
     await expect(panel).not.toBeVisible({ timeout: 2_000 });
   });
 
-  // ---- HIGH-001: BlockDetailPanel should expose time/lane inputs -----------
-  test("HIGH-001 — [EXPECTED FAIL] BlockDetailPanel exposes time_start, time_end, lane_start, lane_end", async ({
+  // ---- HIGH-001: BlockDetailPanel exposes manual time/lane inputs ----------
+  test("HIGH-001 — BlockDetailPanel exposes time_start, time_end, lane_start, lane_end", async ({
     page,
   }) => {
     await openFirstSession(page);
@@ -125,8 +125,8 @@ test.describe("1%ers — UX details", () => {
     await expect(page.getByLabel(/lane end/i)).toBeVisible({ timeout: 2_000 });
   });
 
-  // ---- HIGH-003: Opening a new grid selection should dismiss BlockDetailPanel ----
-  test("HIGH-003 — [EXPECTED FAIL] Starting a new grid drag dismisses the detail panel", async ({
+  // ---- HIGH-003: Opening a new grid selection dismisses BlockDetailPanel ----
+  test("HIGH-003 — Starting a new grid drag dismisses the detail panel", async ({
     page,
   }) => {
     await openFirstSession(page);
