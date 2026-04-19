@@ -72,8 +72,10 @@ export interface ChatMessage {
   attachments?: Attachment[];
   /** Tool calls returned by Claude — pending actions to preview/execute */
   toolCalls?: ToolCallAction[];
-  /** Whether tool call actions have been applied */
+  /** Whether tool call actions have been applied (true even if some failed — prevents double-apply). */
   actionsApplied?: boolean;
+  /** True when actionsApplied but at least one tool call failed at runtime. */
+  actionsPartiallyApplied?: boolean;
   timestamp: Date;
 }
 
@@ -87,8 +89,25 @@ export interface ToolCallAction {
   input: Record<string, any>;
   /** Human-readable description of what this action does */
   description: string;
-  /** Validation error, if any */
+  /** Validation error, detected pre-apply (bad tool arguments from the model). */
   error?: string;
+  /** Runtime error, detected during apply (collision, missing block, network failure). */
+  runtimeError?: string;
+}
+
+/**
+ * A pending destructive-confirmation prompt. The assistant hook exposes this
+ * so the UI can render a typed-confirmation modal and call
+ * `resolveDestructiveConfirm(true|false)` once the user decides.
+ */
+export interface PendingDestructiveConfirm {
+  messageId: string;
+  /** Total block count that will actually be deleted if confirmed. */
+  deleteCount: number;
+  /** Earliest affected time (HH:MM), when the batch includes a clear_time_range. */
+  timeStart?: string;
+  /** Latest affected time (HH:MM), when the batch includes a clear_time_range. */
+  timeEnd?: string;
 }
 
 /** Live session data provided via ref-based context (read on-demand, not reactive) */
@@ -195,15 +214,20 @@ export function useAssistant({
             }))
           : undefined,
         toolCalls: m.tool_calls && Array.isArray(m.tool_calls) && m.tool_calls.length > 0
-          ? m.tool_calls.map((tc: { id: string; toolName: string; input: Record<string, unknown>; description: string; error?: string }) => ({
+          ? m.tool_calls.map((tc: { id: string; toolName: string; input: Record<string, unknown>; description: string; error?: string; runtimeError?: string }) => ({
               id: tc.id,
               toolName: tc.toolName,
               input: tc.input,
               description: tc.description,
               error: tc.error,
+              runtimeError: tc.runtimeError,
             }))
           : undefined,
         actionsApplied: m.actions_applied,
+        actionsPartiallyApplied:
+          !!m.actions_applied &&
+          Array.isArray(m.tool_calls) &&
+          m.tool_calls.some((tc: { runtimeError?: string }) => !!tc.runtimeError),
         timestamp: new Date(m.created_at),
       }));
       setMessages(loaded);
@@ -1169,35 +1193,141 @@ export function useAssistant({
     [getActiveSession, activities, squads, program, phases, allSessions, onSessionUpdated, isAdmin, threadId]
   );
 
+  // Pending destructive-confirmation state — non-null while the UI dialog is
+  // open. `applyActions` awaits the promise stored in `confirmResolveRef`,
+  // which `resolveDestructiveConfirm` settles when the user confirms or cancels.
+  const [pendingDestructiveConfirm, setPendingDestructiveConfirm] =
+    useState<PendingDestructiveConfirm | null>(null);
+  const confirmResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
+
+  const resolveDestructiveConfirm = useCallback((confirmed: boolean) => {
+    const resolver = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    setPendingDestructiveConfirm(null);
+    if (resolver) resolver(confirmed);
+  }, []);
+
   /**
-   * Apply all actions from a message
+   * Apply all actions from a message.
+   *
+   * Two safety layers:
+   *   1. Secondary confirmation — if the batch contains a `clear_time_range`
+   *      or ≥3 `delete_block` calls, show a typed-confirmation modal. Single
+   *      deletes and non-destructive ops skip this step (preserved friction
+   *      only where the blast radius warrants it).
+   *   2. Per-action error collection — failures are attached to each
+   *      `toolCall.runtimeError` so the UI can render red state next to the
+   *      specific call that failed, rather than swallowing errors in
+   *      `console.warn`. The message is marked `actionsPartiallyApplied` when
+   *      any individual call failed.
    */
   const applyActions = useCallback(
     async (messageId: string) => {
-      const msg = messages.find((m) => m.id === messageId);
+      const msg = messagesRef.current.find((m) => m.id === messageId);
       if (!msg || !msg.toolCalls || msg.actionsApplied) return;
 
-      for (const action of msg.toolCalls) {
-        if (action.error) continue;
-        const error = await executeAction(action);
-        if (error) {
-          console.warn(`Action failed: ${action.description} — ${error}`);
+      // --- 1. Bulk-destructive gating ----------------------------------------
+      const pending = msg.toolCalls.filter((a) => !a.error);
+      const deleteBlockCount = pending.filter((a) => a.toolName === "delete_block").length;
+      const clearRangeActions = pending.filter((a) => a.toolName === "clear_time_range");
+      const needsConfirm = clearRangeActions.length > 0 || deleteBlockCount >= 3;
+
+      if (needsConfirm) {
+        // Compute the real blast radius: direct delete_block count PLUS blocks
+        // currently sitting inside any clear_time_range window. Without this,
+        // the dialog would say "3 blocks" for a clear_time_range that actually
+        // wipes 12.
+        const toMins = (t: string) => {
+          const [h, m] = t.split(":").map(Number);
+          return h * 60 + m;
+        };
+        const active = getActiveSession();
+        const blocks = active?.blocks || [];
+
+        let rangeDeleteCount = 0;
+        let earliestStart: string | undefined;
+        let latestEnd: string | undefined;
+        for (const a of clearRangeActions) {
+          const ts = String(a.input.time_start);
+          const te = String(a.input.time_end);
+          const rStart = toMins(ts);
+          const rEnd = toMins(te);
+          rangeDeleteCount += blocks.filter((b) => {
+            const bm = toMins(b.time_start);
+            return bm >= rStart && bm < rEnd;
+          }).length;
+          if (!earliestStart || toMins(earliestStart) > rStart) earliestStart = ts;
+          if (!latestEnd || toMins(latestEnd) < rEnd) latestEnd = te;
+        }
+
+        const totalDelete = deleteBlockCount + rangeDeleteCount;
+
+        const confirmed = await new Promise<boolean>((resolve) => {
+          confirmResolveRef.current = resolve;
+          setPendingDestructiveConfirm({
+            messageId,
+            deleteCount: totalDelete,
+            timeStart: earliestStart,
+            timeEnd: latestEnd,
+          });
+        });
+
+        if (!confirmed) {
+          // Skip entirely — do not partially apply. `actionsApplied` stays
+          // false so the user can either ask the AI to revise or click Apply
+          // again and go through the confirm flow once more.
+          return;
         }
       }
 
+      // --- 2. Execute with per-action error collection -----------------------
+      const runtimeErrors: Record<string, string> = {};
+      let anyFailed = false;
+      let anySucceeded = false;
+      for (const action of msg.toolCalls) {
+        if (action.error) continue; // pre-apply validation failure — already red in UI
+        try {
+          const error = await executeAction(action);
+          if (error) {
+            runtimeErrors[action.id] = error;
+            anyFailed = true;
+          } else {
+            anySucceeded = true;
+          }
+        } catch (err) {
+          runtimeErrors[action.id] =
+            err instanceof Error ? err.message : "Unknown error while applying this action.";
+          anyFailed = true;
+        }
+      }
+
+      const updatedToolCalls = msg.toolCalls.map((tc) => ({
+        ...tc,
+        runtimeError: runtimeErrors[tc.id],
+      }));
+
       setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, actionsApplied: true } : m))
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                toolCalls: updatedToolCalls,
+                actionsApplied: true,
+                actionsPartiallyApplied: anyFailed && anySucceeded,
+              }
+            : m
+        )
       );
 
-      // Persist actions_applied to DB
+      // Persist — both the updated per-call runtime errors AND the applied flag
       if (threadId) {
         await supabaseRef.current
           .from("sp_assistant_messages")
-          .update({ actions_applied: true })
+          .update({ actions_applied: true, tool_calls: updatedToolCalls })
           .eq("id", messageId);
       }
     },
-    [messages, executeAction, threadId]
+    [executeAction, threadId, getActiveSession]
   );
 
   /**
@@ -1537,5 +1667,8 @@ export function useAssistant({
     threadId,
     switchThread,
     startNewChat,
+    // Destructive-action confirmation flow
+    pendingDestructiveConfirm,
+    resolveDestructiveConfirm,
   };
 }

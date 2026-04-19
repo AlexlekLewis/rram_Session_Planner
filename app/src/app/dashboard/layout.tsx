@@ -343,6 +343,8 @@ function GlobalAssistant({
       activeThreadId={assistant.threadId}
       onSwitchThread={assistant.switchThread}
       onNewChat={assistant.startNewChat}
+      pendingDestructiveConfirm={assistant.pendingDestructiveConfirm}
+      onResolveDestructiveConfirm={assistant.resolveDestructiveConfirm}
     />
   );
 }

@@ -131,9 +131,15 @@ export function ChatMessage({ message, onApplyActions }: ChatMessageProps) {
               </button>
             )}
 
-            {message.actionsApplied && (
+            {message.actionsApplied && !message.actionsPartiallyApplied && (
               <div className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1 mt-1">
                 <Check className="w-3 h-3" /> Applied
+              </div>
+            )}
+
+            {message.actionsApplied && message.actionsPartiallyApplied && (
+              <div className="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 mt-1">
+                <AlertTriangle className="w-3 h-3" /> Partially applied — see errors above
               </div>
             )}
           </div>
@@ -144,7 +150,12 @@ export function ChatMessage({ message, onApplyActions }: ChatMessageProps) {
 }
 
 function ActionCard({ action }: { action: ToolCallAction }) {
-  const hasError = !!action.error;
+  // Validation errors (pre-apply) and runtime errors (post-apply) both render
+  // in red state. The distinction matters for logic (validation errors skip
+  // execution; runtime errors surface after attempted execution) but the UI
+  // treats them identically — the user just needs to see the problem.
+  const errorText = action.runtimeError || action.error;
+  const hasError = !!errorText;
 
   return (
     <div
@@ -168,7 +179,7 @@ function ActionCard({ action }: { action: ToolCallAction }) {
             {action.description}
           </span>
           {hasError && (
-            <p className="text-red-500 dark:text-red-400 mt-0.5">{action.error}</p>
+            <p className="text-red-500 dark:text-red-400 mt-0.5">{errorText}</p>
           )}
         </div>
       </div>
