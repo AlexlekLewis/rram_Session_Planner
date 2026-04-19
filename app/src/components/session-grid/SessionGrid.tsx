@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Session, SessionBlock, BlockCategory, Tier, BlockPosition } from "@/lib/types";
+import { Session, SessionBlock, BlockCategory, Tier, BlockPosition, Activity } from "@/lib/types";
 import { TimeAxis } from "./TimeAxis";
 import { LaneHeader } from "./LaneHeader";
 import { GridCanvas } from "./GridCanvas";
@@ -20,6 +20,14 @@ interface SessionGridProps {
   onDuplicateBlock: (block: SessionBlock) => void;
   onSelectBlocks: (ids: string[]) => void;
   hasCollision: (position: BlockPosition, excludeId?: string) => boolean;
+  onLibraryDrop?: (
+    activity: Activity,
+    laneStart: number,
+    laneEnd: number,
+    timeStart: string,
+    timeEnd: string,
+    position: { x: number; y: number }
+  ) => void;
 }
 
 export function SessionGrid({
@@ -33,6 +41,7 @@ export function SessionGrid({
   onDuplicateBlock,
   onSelectBlocks,
   hasCollision,
+  onLibraryDrop,
 }: SessionGridProps) {
   const timeSlots = generateTimeSlots(session.start_time, session.end_time);
 
@@ -160,6 +169,7 @@ export function SessionGrid({
             onSelectBlocks={onSelectBlocks}
             onContextMenu={handleContextMenu}
             hasCollision={hasCollision}
+            onLibraryDrop={onLibraryDrop}
           />
         </div>
       </div>

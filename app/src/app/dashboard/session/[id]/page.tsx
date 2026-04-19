@@ -265,7 +265,6 @@ export default function SessionPage() {
   );
 
   // Library drag-drop: when activity dropped on grid, show tier selector
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleLibraryDrop = useCallback(
     (activity: Activity, laneStart: number, laneEnd: number, timeStart: string, timeEnd: string, position: { x: number; y: number }) => {
       setTierSelector({ activity, position, laneStart, laneEnd, timeStart, timeEnd });
@@ -486,6 +485,7 @@ export default function SessionPage() {
               onDuplicateBlock={duplicateBlock}
               onSelectBlocks={blockManager.setSelectedBlockIds}
               hasCollision={blockManager.hasCollision}
+              onLibraryDrop={handleLibraryDrop}
             />
           ) : (
             <ReadOnlyGrid session={session} blocks={blockManager.blocks} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback } from "react";
-import { Session, SessionBlock, BlockPosition } from "@/lib/types";
+import { Session, SessionBlock, BlockPosition, Activity } from "@/lib/types";
 import { GridBlock } from "./GridBlock";
 import {
   generateTimeSlots,
@@ -24,6 +24,14 @@ interface GridCanvasProps {
   onSelectBlocks: (ids: string[]) => void;
   onContextMenu: (block: SessionBlock, position: { x: number; y: number }) => void;
   hasCollision: (position: BlockPosition, excludeId?: string) => boolean;
+  onLibraryDrop?: (
+    activity: Activity,
+    laneStart: number,
+    laneEnd: number,
+    timeStart: string,
+    timeEnd: string,
+    position: { x: number; y: number }
+  ) => void;
 }
 
 export function GridCanvas({
@@ -36,6 +44,7 @@ export function GridCanvas({
   onSelectBlocks,
   onContextMenu,
   hasCollision,
+  onLibraryDrop,
 }: GridCanvasProps) {
   const timeSlots = generateTimeSlots(session.start_time, session.end_time);
   const totalRows = timeSlots.length;
@@ -63,13 +72,13 @@ export function GridCanvas({
     startLane: number;
   } | null>(null);
 
-  // Get cell coordinates from mouse event
-  const getCellFromMouse = useCallback(
-    (e: React.MouseEvent): { lane: number; timeIndex: number } | null => {
+  // Get cell coordinates from pointer coordinates
+  const getCellFromPoint = useCallback(
+    (clientX: number, clientY: number): { lane: number; timeIndex: number } | null => {
       if (!gridRef.current) return null;
       const rect = gridRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top + gridRef.current.scrollTop;
+      const x = clientX - rect.left;
+      const y = clientY - rect.top + gridRef.current.scrollTop;
 
       const colWidth = rect.width / TOTAL_LANES;
       const lane = Math.max(1, Math.min(TOTAL_LANES, Math.floor(x / colWidth) + 1));
@@ -78,6 +87,13 @@ export function GridCanvas({
       return { lane, timeIndex };
     },
     [totalRows]
+  );
+
+  // Get cell coordinates from mouse event
+  const getCellFromMouse = useCallback(
+    (e: React.MouseEvent): { lane: number; timeIndex: number } | null =>
+      getCellFromPoint(e.clientX, e.clientY),
+    [getCellFromPoint]
   );
 
   // Check if a cell has a block on it
@@ -242,6 +258,52 @@ export function GridCanvas({
     [onContextMenu]
   );
 
+  // Library drag-over: signal drop target
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!onLibraryDrop) return;
+    const types = e.dataTransfer.types;
+    if (!types.includes("application/activity-json")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, [onLibraryDrop]);
+
+  // Library drop: parse activity and compute lane/time from cursor
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!onLibraryDrop) return;
+      const json = e.dataTransfer.getData("application/activity-json");
+      if (!json) return;
+      e.preventDefault();
+
+      let activity: Activity;
+      try {
+        activity = JSON.parse(json) as Activity;
+      } catch {
+        return;
+      }
+
+      const cell = getCellFromPoint(e.clientX, e.clientY);
+      if (!cell) return;
+
+      const laneSpan = Math.max(1, Math.min(TOTAL_LANES, activity.default_lanes || 1));
+      const laneStart = Math.max(1, Math.min(TOTAL_LANES - laneSpan + 1, cell.lane));
+      const laneEnd = laneStart + laneSpan - 1;
+
+      const durationMins = Math.max(TIME_INCREMENT_MINUTES, activity.default_duration_mins || TIME_INCREMENT_MINUTES);
+      const rowSpan = Math.max(1, Math.ceil(durationMins / TIME_INCREMENT_MINUTES));
+      const timeStartIndex = Math.max(0, Math.min(totalRows - rowSpan, cell.timeIndex));
+      const timeStart = timeSlots[timeStartIndex];
+      if (!timeStart) return;
+
+      const [sh, sm] = timeStart.split(":").map(Number);
+      const endMins = sh * 60 + sm + rowSpan * TIME_INCREMENT_MINUTES;
+      const timeEnd = `${Math.floor(endMins / 60).toString().padStart(2, "0")}:${(endMins % 60).toString().padStart(2, "0")}`;
+
+      onLibraryDrop(activity, laneStart, laneEnd, timeStart, timeEnd, { x: e.clientX, y: e.clientY });
+    },
+    [onLibraryDrop, getCellFromPoint, timeSlots, totalRows]
+  );
+
   // Resize handlers
   const handleResizeStart = useCallback(
     (e: React.MouseEvent, blockId: string, edge: "bottom" | "right" | "corner") => {
@@ -261,6 +323,8 @@ export function GridCanvas({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* CSS Grid */}
