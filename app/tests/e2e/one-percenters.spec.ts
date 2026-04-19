@@ -182,8 +182,8 @@ test.describe("1%ers — consistency across modals", () => {
     if (!authed) test.skip(true, "E2E_PASSWORD not set — skipping");
   });
 
-  // ---- MED-004: AssistantPanel thread dropdown outside-click -----------
-  test("MED-004 — [EXPECTED FAIL] AssistantPanel thread dropdown closes on outside click", async ({
+  // ---- HIGH-007: AssistantPanel thread dropdown closes on outside click ----
+  test("HIGH-007 — AssistantPanel thread dropdown closes on outside click", async ({
     page,
   }) => {
     await page.goto("/dashboard/month");

@@ -102,6 +102,30 @@ export function AssistantPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Refs for the thread-dropdown outside-click dismiss. We guard against
+  // the toggle button as well as the dropdown panel so clicking the
+  // toggle doesn't close-then-reopen the dropdown on the same gesture.
+  const threadsToggleRef = useRef<HTMLButtonElement>(null);
+  const threadsDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close the thread dropdown on any click outside its toggle or panel.
+  useEffect(() => {
+    if (!showThreads) return;
+    function handleOutsideClick(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        threadsToggleRef.current?.contains(target) ||
+        threadsDropdownRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setShowThreads(false);
+    }
+    // mousedown (not click) so the listener fires before any click handlers
+    // inside the dropdown — reduces flicker when the user clicks an item.
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [showThreads]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -298,12 +322,15 @@ export function AssistantPanel({
           )}
           {threads.length > 0 && onSwitchThread && (
             <button
+              ref={threadsToggleRef}
               onClick={() => setShowThreads(!showThreads)}
               className={cn(
                 "p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors",
                 showThreads && "bg-gray-100 dark:bg-gray-800"
               )}
               title="Past conversations"
+              aria-expanded={showThreads}
+              aria-haspopup="listbox"
             >
               <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", showThreads && "rotate-180")} />
             </button>
@@ -329,7 +356,11 @@ export function AssistantPanel({
 
       {/* Thread selector dropdown */}
       {showThreads && threads.length > 0 && onSwitchThread && (
-        <div className="border-b border-gray-200 dark:border-gray-700 max-h-48 overflow-y-auto">
+        <div
+          ref={threadsDropdownRef}
+          role="listbox"
+          className="border-b border-gray-200 dark:border-gray-700 max-h-48 overflow-y-auto"
+        >
           {threads.map((t) => (
             <button
               key={t.id}

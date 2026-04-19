@@ -6,7 +6,6 @@ import jsPDF from "jspdf";
 import { Session, SessionBlock, Squad, Tier } from "./types";
 import {
   CATEGORY_LABELS,
-  TIER_LABELS,
   TIER_COLOURS,
   formatTime,
   LANES,

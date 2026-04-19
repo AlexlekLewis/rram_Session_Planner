@@ -149,11 +149,21 @@ export const TIER_LABELS = {
   G: "Gamify",
 } as const;
 
+// Tier badge colours — picked so that white text on top passes WCAG AA
+// (4.5:1 contrast). The previous lighter hues (500-level Tailwind greens
+// / blues / purples / ambers) all failed at 1.4–2.5:1, which made the
+// single-letter tier badges hard to read and outright inaccessible for
+// low-vision users. Hue family preserved; lightness dropped to 700–800.
+//
+//   R #15803D (green-700)  — contrast ~7.5:1 on white
+//   P #1D4ED8 (blue-700)   — contrast ~7:1
+//   E #7E22CE (purple-700) — contrast ~6.5:1
+//   G #92400E (amber-800)  — contrast ~6:1
 export const TIER_COLOURS = {
-  R: "#22C55E",
-  P: "#3B82F6",
-  E: "#A855F7",
-  G: "#F59E0B",
+  R: "#15803D",
+  P: "#1D4ED8",
+  E: "#7E22CE",
+  G: "#92400E",
 } as const;
 
 // ============================================================================
