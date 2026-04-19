@@ -1,8 +1,8 @@
 "use client";
 
-import { ChatMessage as ChatMessageType, ToolCallAction } from "@/hooks/useAssistant";
+import { ChatMessage as ChatMessageType, ToolCallAction, ApplyResult } from "@/hooks/useAssistant";
 import { cn } from "@/lib/utils";
-import { Check, AlertTriangle, Sparkles, Paperclip, Image as ImageIcon, FileSpreadsheet, FileText } from "lucide-react";
+import { Check, AlertTriangle, Sparkles, Paperclip, Image as ImageIcon, FileSpreadsheet, FileText, X as XIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 interface ChatMessageProps {
@@ -118,22 +118,34 @@ export function ChatMessage({ message, onApplyActions }: ChatMessageProps) {
             </div>
 
             {message.toolCalls.map((action) => (
-              <ActionCard key={action.id} action={action} />
+              <ActionCard
+                key={action.id}
+                action={action}
+                result={message.applyResults?.find((r) => r.actionId === action.id)}
+              />
             ))}
 
+            {/* Apply button — hidden once a successful full-apply has landed.
+                For partial applies the button stays so the user can retry. */}
             {!message.actionsApplied && onApplyActions && (
               <button
                 onClick={() => onApplyActions(message.id)}
                 className="w-full mt-2 py-2 px-3 text-xs font-semibold text-white bg-rr-pink hover:bg-rr-pink/90 rounded-lg transition flex items-center justify-center gap-1.5"
               >
                 <Check className="w-3.5 h-3.5" />
-                Apply {message.toolCalls.length === 1 ? "Change" : `All ${message.toolCalls.length} Changes`}
+                {message.actionsPartiallyApplied ? "Retry Failed" : `Apply ${message.toolCalls.length === 1 ? "Change" : `All ${message.toolCalls.length} Changes`}`}
               </button>
             )}
 
             {message.actionsApplied && (
               <div className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1 mt-1">
                 <Check className="w-3 h-3" /> Applied
+              </div>
+            )}
+
+            {message.actionsPartiallyApplied && !message.actionsApplied && (
+              <div className="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 mt-1">
+                <AlertTriangle className="w-3 h-3" /> Partially applied — some actions failed
               </div>
             )}
           </div>
@@ -143,8 +155,13 @@ export function ChatMessage({ message, onApplyActions }: ChatMessageProps) {
   );
 }
 
-function ActionCard({ action }: { action: ToolCallAction }) {
-  const hasError = !!action.error;
+function ActionCard({ action, result }: { action: ToolCallAction; result?: ApplyResult }) {
+  // Validation-time error (known before Apply was clicked) OR runtime error
+  // collected during apply. Either way, render the red treatment.
+  const validationError = action.error;
+  const runtimeError = result?.status === "error" ? result.error : undefined;
+  const hasError = !!(validationError || runtimeError);
+  const succeeded = result?.status === "success";
 
   return (
     <div
@@ -152,23 +169,38 @@ function ActionCard({ action }: { action: ToolCallAction }) {
         "rounded-lg px-3 py-2 text-xs",
         hasError
           ? "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
-          : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600"
+          : succeeded
+            ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+            : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600"
       )}
     >
       <div className="flex items-start gap-2">
         {hasError ? (
-          <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+          <XIcon className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" aria-label="Failed" />
+        ) : succeeded ? (
+          <Check className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" aria-label="Applied" />
         ) : (
           <div className="w-3.5 h-3.5 rounded-full bg-rr-pink/20 shrink-0 mt-0.5 flex items-center justify-center">
             <div className="w-1.5 h-1.5 rounded-full bg-rr-pink" />
           </div>
         )}
-        <div>
-          <span className={cn("font-medium", hasError ? "text-red-700 dark:text-red-400" : "text-gray-800 dark:text-gray-200")}>
+        <div className="flex-1 min-w-0">
+          <span
+            className={cn(
+              "font-medium",
+              hasError
+                ? "text-red-700 dark:text-red-400"
+                : succeeded
+                  ? "text-green-800 dark:text-green-300"
+                  : "text-gray-800 dark:text-gray-200"
+            )}
+          >
             {action.description}
           </span>
           {hasError && (
-            <p className="text-red-500 dark:text-red-400 mt-0.5">{action.error}</p>
+            <p className="text-red-500 dark:text-red-400 mt-0.5 break-words">
+              {validationError || runtimeError}
+            </p>
           )}
         </div>
       </div>

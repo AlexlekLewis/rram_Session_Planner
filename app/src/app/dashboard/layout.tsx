@@ -343,6 +343,9 @@ function GlobalAssistant({
       activeThreadId={assistant.threadId}
       onSwitchThread={assistant.switchThread}
       onNewChat={assistant.startNewChat}
+      pendingBulkConfirm={assistant.pendingBulkConfirm}
+      onConfirmBulk={assistant.confirmBulkApply}
+      onCancelBulk={assistant.cancelBulkConfirm}
     />
   );
 }

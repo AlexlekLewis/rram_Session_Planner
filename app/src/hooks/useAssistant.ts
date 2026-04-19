@@ -62,6 +62,17 @@ export interface Attachment {
 }
 
 /**
+ * Per-action result after applyActions runs. Enables ChatMessage.tsx to
+ * render a green tick / red error next to each proposed change so silent
+ * tool failures surface to the user instead of hiding in console.warn.
+ */
+export interface ApplyResult {
+  actionId: string;
+  status: "success" | "error";
+  error?: string;
+}
+
+/**
  * Chat message in the assistant conversation
  */
 export interface ChatMessage {
@@ -72,10 +83,57 @@ export interface ChatMessage {
   attachments?: Attachment[];
   /** Tool calls returned by Claude — pending actions to preview/execute */
   toolCalls?: ToolCallAction[];
-  /** Whether tool call actions have been applied */
+  /** Whether tool call actions have been applied (every action succeeded) */
   actionsApplied?: boolean;
+  /** True if at least one action errored — user sees "Partially applied" */
+  actionsPartiallyApplied?: boolean;
+  /** Per-action results attached after applyActions runs */
+  applyResults?: ApplyResult[];
   timestamp: Date;
 }
+
+/**
+ * Bulk-confirm gate for destructive AI operations. When non-null, the
+ * AssistantPanel renders a typed-confirmation dialog ("type 'delete' to
+ * confirm") before the listed toolCalls actually run. This is the
+ * safety net for `clear_time_range` and any message that contains 3+
+ * `delete_block` calls — a misread of the preview must not wipe a session.
+ */
+export interface PendingBulkConfirm {
+  messageId: string;
+  /** Short summary shown in the dialog body */
+  summary: string;
+  /** Count of destructive actions in the pending set (drives wording) */
+  destructiveCount: number;
+}
+
+/**
+ * Names of tools that can destroy data. Kept in one place so the
+ * confirm-gate logic and future audit logging stay in sync.
+ */
+const DESTRUCTIVE_TOOL_NAMES = new Set<string>([
+  "clear_time_range",
+  "delete_block",
+  "remove_coach",
+  "admin_delete_player",
+  "admin_delete_session",
+]);
+
+/**
+ * Tools that are *always* high-risk regardless of count — a single call
+ * can wipe many records. Trigger the confirmation gate on first sight.
+ */
+const ALWAYS_CONFIRM_TOOLS = new Set<string>([
+  "clear_time_range",
+  "admin_delete_player",
+  "admin_delete_session",
+]);
+
+/**
+ * Threshold at which repeated "low-risk" destructive ops (e.g. deleting
+ * one block at a time) are treated as a bulk destructive operation.
+ */
+const BULK_DESTRUCTIVE_THRESHOLD = 3;
 
 /**
  * A parsed tool call from Claude's response, ready for preview/execution
@@ -141,6 +199,12 @@ export function useAssistant({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * When an Apply click targets a message with destructive actions that
+   * meet the bulk-confirm threshold, we stash it here and wait for the
+   * user to type "delete" in the ConfirmDestructiveDialog before running.
+   */
+  const [pendingBulkConfirm, setPendingBulkConfirm] = useState<PendingBulkConfirm | null>(null);
   const messageIdCounter = useRef(0);
   const [knowledge, setKnowledge] = useState<{ category: string; title: string; content: string }[]>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -1170,27 +1234,62 @@ export function useAssistant({
   );
 
   /**
-   * Apply all actions from a message
+   * Internal executor — runs every toolCall on the message, collecting a
+   * per-action result and attaching it to the message so ChatMessage.tsx
+   * can render success ✓ / error ✗ next to each proposed change.
+   *
+   * Splits from `applyActions` (the public entry point) so that the
+   * bulk-confirm gate doesn't have to re-implement the run logic.
    */
-  const applyActions = useCallback(
+  const runActionsInternal = useCallback(
     async (messageId: string) => {
       const msg = messages.find((m) => m.id === messageId);
       if (!msg || !msg.toolCalls || msg.actionsApplied) return;
 
+      const results: ApplyResult[] = [];
+      let anyFailed = false;
+
       for (const action of msg.toolCalls) {
-        if (action.error) continue;
-        const error = await executeAction(action);
-        if (error) {
-          console.warn(`Action failed: ${action.description} — ${error}`);
+        if (action.error) {
+          // Validation-time error — already shown on the action card.
+          results.push({ actionId: action.id, status: "error", error: action.error });
+          anyFailed = true;
+          continue;
+        }
+        try {
+          const err = await executeAction(action);
+          if (err) {
+            results.push({ actionId: action.id, status: "error", error: err });
+            anyFailed = true;
+            console.warn(`Action failed: ${action.description} — ${err}`);
+          } else {
+            results.push({ actionId: action.id, status: "success" });
+          }
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          results.push({ actionId: action.id, status: "error", error: errMsg });
+          anyFailed = true;
+          console.warn(`Action threw: ${action.description} — ${errMsg}`);
         }
       }
 
       setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, actionsApplied: true } : m))
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                applyResults: results,
+                actionsApplied: !anyFailed,
+                actionsPartiallyApplied: anyFailed,
+              }
+            : m
+        )
       );
 
-      // Persist actions_applied to DB
-      if (threadId) {
+      // Persist actions_applied to DB — only mark as fully applied when
+      // every action succeeded. Partial applies are intentionally not
+      // persisted as "applied" so the user can retry on reload.
+      if (threadId && !anyFailed) {
         await supabaseRef.current
           .from("sp_assistant_messages")
           .update({ actions_applied: true })
@@ -1199,6 +1298,81 @@ export function useAssistant({
     },
     [messages, executeAction, threadId]
   );
+
+  /**
+   * Detect whether a message's pending actions need a typed-confirmation
+   * gate before running. Returns a PendingBulkConfirm shape if so, else null.
+   */
+  const detectDestructive = useCallback(
+    (msg: ChatMessage): PendingBulkConfirm | null => {
+      if (!msg.toolCalls || msg.toolCalls.length === 0) return null;
+
+      const destructive = msg.toolCalls.filter(
+        (a) => !a.error && DESTRUCTIVE_TOOL_NAMES.has(a.toolName)
+      );
+      if (destructive.length === 0) return null;
+
+      const hasAlwaysConfirm = destructive.some((a) => ALWAYS_CONFIRM_TOOLS.has(a.toolName));
+      const deleteCount = destructive.filter((a) => a.toolName === "delete_block").length;
+
+      if (!hasAlwaysConfirm && deleteCount < BULK_DESTRUCTIVE_THRESHOLD) {
+        return null;
+      }
+
+      const lines = destructive.map((a) => `• ${a.description}`);
+      const summary = lines.slice(0, 5).join("\n") + (lines.length > 5 ? `\n…and ${lines.length - 5} more` : "");
+
+      return {
+        messageId: msg.id,
+        summary,
+        destructiveCount: destructive.length,
+      };
+    },
+    []
+  );
+
+  /**
+   * Public entry point. Gates destructive operations behind a typed-
+   * confirmation modal ("type 'delete' to confirm"). Non-destructive
+   * actions run immediately. Silent failures are now surfaced via
+   * `message.applyResults`.
+   */
+  const applyActions = useCallback(
+    async (messageId: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (!msg || !msg.toolCalls || msg.actionsApplied) return;
+
+      const confirm = detectDestructive(msg);
+      if (confirm) {
+        setPendingBulkConfirm(confirm);
+        return;
+      }
+
+      await runActionsInternal(messageId);
+    },
+    [messages, detectDestructive, runActionsInternal]
+  );
+
+  /**
+   * Called by the ConfirmDestructiveDialog when the user has typed
+   * "delete" and clicked Confirm. Runs the pending actions and clears
+   * the gate.
+   */
+  const confirmBulkApply = useCallback(async () => {
+    if (!pendingBulkConfirm) return;
+    const { messageId } = pendingBulkConfirm;
+    setPendingBulkConfirm(null);
+    await runActionsInternal(messageId);
+  }, [pendingBulkConfirm, runActionsInternal]);
+
+  /**
+   * Called when the user closes / cancels the confirm dialog. The
+   * pending actions are *not* marked applied; the Apply button remains
+   * available so the user can retry.
+   */
+  const cancelBulkConfirm = useCallback(() => {
+    setPendingBulkConfirm(null);
+  }, []);
 
   /**
    * Send a message to the AI assistant
@@ -1537,5 +1711,9 @@ export function useAssistant({
     threadId,
     switchThread,
     startNewChat,
+    // Bulk-delete confirmation gate
+    pendingBulkConfirm,
+    confirmBulkApply,
+    cancelBulkConfirm,
   };
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ChatMessage as ChatMessageType, ThreadSummary, Attachment } from "@/hooks/useAssistant";
+import { ChatMessage as ChatMessageType, ThreadSummary, Attachment, PendingBulkConfirm } from "@/hooks/useAssistant";
 import { ChatMessage } from "./ChatMessage";
+import { ConfirmDestructiveDialog } from "./ConfirmDestructiveDialog";
 import { cn } from "@/lib/utils";
 import { X, Send, Sparkles, Trash2, ChevronDown, Plus, MessageSquare, Paperclip, Image as ImageIcon, FileSpreadsheet, FileText } from "lucide-react";
 import {
@@ -70,6 +71,10 @@ interface AssistantPanelProps {
   activeThreadId?: string | null;
   onSwitchThread?: (id: string) => void;
   onNewChat?: () => void;
+  /** Bulk-destructive gate — when non-null, render ConfirmDestructiveDialog */
+  pendingBulkConfirm?: PendingBulkConfirm | null;
+  onConfirmBulk?: () => void;
+  onCancelBulk?: () => void;
 }
 
 export function AssistantPanel({
@@ -85,6 +90,9 @@ export function AssistantPanel({
   activeThreadId,
   onSwitchThread,
   onNewChat,
+  pendingBulkConfirm,
+  onConfirmBulk,
+  onCancelBulk,
 }: AssistantPanelProps) {
   const [input, setInput] = useState("");
   const [showThreads, setShowThreads] = useState(false);
@@ -554,6 +562,20 @@ export function AssistantPanel({
           Attach images/PDFs up to 5&nbsp;MB, or spreadsheets (.xlsx, .xls, .csv, .tsv, .ods) up to 20&nbsp;MB. Paste a public Google Sheets link and I&rsquo;ll read it automatically.
         </p>
       </div>
+
+      {/*
+        Bulk-destructive confirmation gate — rendered on top of the panel
+        when an Apply click would trigger clear_time_range or 3+ deletions.
+        Position: fixed inset-0 z-[60] inside the dialog, so it escapes the
+        panel's own z-index stack regardless of where it sits in the tree.
+      */}
+      {pendingBulkConfirm && onConfirmBulk && onCancelBulk && (
+        <ConfirmDestructiveDialog
+          confirm={pendingBulkConfirm}
+          onConfirm={onConfirmBulk}
+          onCancel={onCancelBulk}
+        />
+      )}
     </div>
   );
 }
