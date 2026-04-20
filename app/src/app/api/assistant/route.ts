@@ -3,6 +3,18 @@ import { ASSISTANT_TOOLS } from "@/lib/assistant-tools";
 import { ADMIN_TOOLS } from "@/lib/admin-tools";
 
 /**
+ * Head-coach-only subset of ASSISTANT_TOOLS. These mutate the shared
+ * activity library, so non-admin coaches must not be shown them — if
+ * Claude sees the definitions it will happily propose them to an
+ * assistant coach and the Apply click fails server-side with a role
+ * error. Filter here so Claude never offers what the user can't execute.
+ */
+const HEAD_COACH_ONLY_TOOLS = new Set([
+  "refactor_activity",
+  "draft_activity_from_brief",
+]);
+
+/**
  * AI Coaching Assistant API Route
  *
  * Proxies messages to the Claude API with the session planner's
@@ -57,7 +69,9 @@ export async function POST(request: NextRequest) {
           },
         ],
         messages: messages.slice(-20), // Trim to last 20 messages to manage context
-        tools: isAdmin ? [...ASSISTANT_TOOLS, ...ADMIN_TOOLS] : ASSISTANT_TOOLS,
+        tools: isAdmin
+          ? [...ASSISTANT_TOOLS, ...ADMIN_TOOLS]
+          : ASSISTANT_TOOLS.filter((t) => !HEAD_COACH_ONLY_TOOLS.has(t.name)),
       }),
     });
 

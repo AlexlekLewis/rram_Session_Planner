@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Activity, TierDetail, GamifyDetail, CoachingFramework, BlockCategory } from "@/lib/types";
 import { CATEGORY_COLOURS, CATEGORY_LABELS, ALL_CATEGORIES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useProgram } from "@/lib/program-context";
 
 type ActivityFormData = Omit<Activity, "id" | "created_at" | "updated_at">;
 
@@ -53,6 +55,8 @@ const emptyFormData: ActivityFormData = {
 export default function LibraryPage() {
   // Stable Supabase client — avoid churning useEffect deps.
   const supabase = useRef(createClient()).current;
+  const { activeProgram } = useProgram();
+  const { isAdmin } = useUserRole(activeProgram?.id);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -200,24 +204,28 @@ export default function LibraryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              aria-label="Draft a new activity with the AI Coach"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("rra:ask-assistant", {
+                    detail: {
+                      message:
+                        "Draft a brand new activity for the library. Ask me a few quick questions (category, what the drill should achieve, skill focus, target tier, any video or description I should reference) then use `draft_activity_from_brief` with all four R/P/E/G tiers filled to elite standard, coaching points tied to the RRA framework, and venue constraints that match our primary venue.",
+                    },
+                  })
+                )
+              }
+              className="px-3 py-2 rounded-lg font-medium text-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-rr-charcoal dark:text-gray-100 hover:border-rr-pink hover:text-rr-pink dark:hover:text-rr-pink transition-all"
+              style={{ fontFamily: "Montserrat" }}
+              title="Ask the AI Coach to draft a new activity with all four tiers"
+            >
+              ✨ Draft with AI
+            </button>
+          )}
           <button
-            onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent("rra:ask-assistant", {
-                  detail: {
-                    message:
-                      "Draft a brand new activity for the library. Ask me a few quick questions (category, what the drill should achieve, skill focus, target tier, any video or description I should reference) then use `draft_activity_from_brief` with all four R/P/E/G tiers filled to elite standard, coaching points tied to the RRA framework, and venue constraints that match our primary venue.",
-                  },
-                })
-              )
-            }
-            className="px-3 py-2 rounded-lg font-medium text-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-rr-charcoal dark:text-gray-100 hover:border-rr-pink hover:text-rr-pink dark:hover:text-rr-pink transition-all"
-            style={{ fontFamily: "Montserrat" }}
-            title="Ask the AI Coach to draft a new activity with all four tiers"
-          >
-            ✨ Draft with AI
-          </button>
-          <button
+            aria-label="Audit the library against the active venue"
             onClick={() =>
               window.dispatchEvent(
                 new CustomEvent("rra:ask-assistant", {
@@ -348,21 +356,24 @@ export default function LibraryPage() {
                 >
                   Edit
                 </button>
-                <button
-                  onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent("rra:ask-assistant", {
-                        detail: {
-                          message: `Improve activity ${activity.id} ("${activity.name}"). First call \`get_activity_details\` to read the current content, then call \`audit_activity_feasibility\` for our primary venue. Then propose a \`refactor_activity\` that: tightens the R/P/E/G tiers to elite standard (real simplification at R, real challenge at P, match-pace + kinetic-chain at E, scoring-rules + consequence at G), adds a between-sets activity so engagement stays above 60%, sets venue constraints that match the audit, and explains what you changed in \`refactor_rationale\`. Do NOT apply it — I want to review it first.`,
-                        },
-                      })
-                    )
-                  }
-                  className="flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-rr-pink/30 text-rr-pink hover:bg-rr-pink/5 transition-colors"
-                  title="Ask the AI Coach to refactor this activity to elite standard"
-                >
-                  ✨ Improve
-                </button>
+                {isAdmin && (
+                  <button
+                    aria-label={`Improve activity ${activity.name} with the AI Coach`}
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("rra:ask-assistant", {
+                          detail: {
+                            message: `Improve activity ${activity.id} ("${activity.name}"). First call \`get_activity_details\` to read the current content, then call \`audit_activity_feasibility\` for our primary venue. Then propose a \`refactor_activity\` that: tightens the R/P/E/G tiers to elite standard (real simplification at R, real challenge at P, match-pace + kinetic-chain at E, scoring-rules + consequence at G), adds a between-sets activity so engagement stays above 60%, sets venue constraints that match the audit, and explains what you changed in \`refactor_rationale\`. Do NOT apply it — I want to review it first.`,
+                          },
+                        })
+                      )
+                    }
+                    className="flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-rr-pink/30 text-rr-pink hover:bg-rr-pink/5 transition-colors"
+                    title="Ask the AI Coach to refactor this activity to elite standard"
+                  >
+                    ✨ Improve
+                  </button>
+                )}
                 <button
                   onClick={() => setDeleteConfirm(activity.id)}
                   className="flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
