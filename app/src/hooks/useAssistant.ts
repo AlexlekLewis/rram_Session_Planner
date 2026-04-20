@@ -277,11 +277,44 @@ export function useAssistant({
   /** Load messages for a specific thread */
   const loadThread = useCallback(async (id: string) => {
     const supabase = supabaseRef.current;
-    const { data } = await supabase
+    // First try the full column set (tool_calls + attachments) — those land
+    // in migration 008 and the AI-feature follow-ups. If PostgREST doesn't
+    // know about them yet the SELECT returns a 400, not an empty array —
+    // and the old code silently dropped the whole conversation. Fall back
+    // to the guaranteed columns so chat history always hydrates.
+    let { data, error } = await supabase
       .from("sp_assistant_messages")
       .select("id, role, content, tool_calls, attachments, actions_applied, created_at")
       .eq("thread_id", id)
       .order("created_at", { ascending: true });
+
+    if (error) {
+      const message = error.message || "";
+      const isMissingColumn =
+        error.code === "PGRST204" ||
+        error.code === "42703" ||
+        /Could not find the .* column/i.test(message) ||
+        /column .* does not exist/i.test(message);
+      if (isMissingColumn) {
+        console.warn(
+          "Thread load: optional column missing — retrying with base columns. " +
+            "Apply supabase/migrations/008_message_attachments.sql to enable attachments.",
+          message
+        );
+        const retry = await supabase
+          .from("sp_assistant_messages")
+          .select("id, role, content, actions_applied, created_at")
+          .eq("thread_id", id)
+          .order("created_at", { ascending: true });
+        data = retry.data;
+        error = retry.error;
+      }
+    }
+
+    if (error) {
+      console.error("Failed to load thread:", error.message);
+      return;
+    }
 
     if (data) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -379,15 +412,58 @@ export function useAssistant({
           ? a.textContent.slice(0, MAX_PERSISTED_TEXT) + "\n\n_[truncated — original was longer]_"
           : a.textContent,
     })) || [];
-    const { data, error: msgInsertError } = await supabase.from("sp_assistant_messages").insert({
+    // Base payload — columns guaranteed to exist on every env.
+    // `attachments` and `tool_calls` are additive columns from later
+    // migrations (008 + the AI feature work). If those migrations
+    // haven't been applied yet, PostgREST 404s the whole insert and
+    // the message never persists. Retry without the optional columns
+    // when we detect the specific "column ... does not exist" error
+    // so conversations still survive a page reload.
+    const basePayload: Record<string, unknown> = {
       thread_id: tId,
       role: msg.role,
       content: msg.content,
+      actions_applied: msg.actionsApplied || false,
+    };
+    const fullPayload: Record<string, unknown> = {
+      ...basePayload,
       tool_calls: msg.toolCalls || [],
       attachments: attachmentsMeta.length > 0 ? attachmentsMeta : [],
-      actions_applied: msg.actionsApplied || false,
-    }).select("id").single();
-    if (msgInsertError) console.error("Failed to save assistant message:", msgInsertError.message);
+    };
+
+    let { data, error: msgInsertError } = await supabase
+      .from("sp_assistant_messages")
+      .insert(fullPayload)
+      .select("id")
+      .single();
+
+    if (msgInsertError) {
+      const message = msgInsertError.message || "";
+      const isMissingColumn =
+        msgInsertError.code === "PGRST204" ||
+        msgInsertError.code === "42703" ||
+        /Could not find the .* column/i.test(message) ||
+        /column .* does not exist/i.test(message);
+      if (isMissingColumn) {
+        console.warn(
+          "Message persist: optional column missing — falling back to base payload. " +
+            "Apply supabase/migrations/008_message_attachments.sql to enable attachments. " +
+            "Original error:",
+          message
+        );
+        const retry = await supabase
+          .from("sp_assistant_messages")
+          .insert(basePayload)
+          .select("id")
+          .single();
+        data = retry.data;
+        msgInsertError = retry.error;
+      }
+    }
+
+    if (msgInsertError) {
+      console.error("Failed to save assistant message:", msgInsertError.message);
+    }
     // Update the client-side message ID to match the DB UUID
     if (data) {
       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, id: data.id } : m));
