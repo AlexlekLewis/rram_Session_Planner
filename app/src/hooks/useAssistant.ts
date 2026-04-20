@@ -1,11 +1,17 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Session, SessionBlock, Activity, Squad, Program, Phase, BlockCategory, Tier } from "@/lib/types";
+import { Session, SessionBlock, Activity, Squad, Program, Phase, BlockCategory, Tier, ProgramMember, Player, Venue } from "@/lib/types";
 import { CATEGORY_COLOURS } from "@/lib/constants";
-import { buildSystemPrompt } from "@/lib/assistant-context";
+import { buildStableSystemPrompt, buildDynamicContextBlock } from "@/lib/assistant-context";
 import { validateToolCall } from "@/lib/assistant-tools";
 import { analyzeSession, formatAnalysisForTool } from "@/lib/session-analysis";
+import {
+  checkActivityAgainstVenue,
+  auditLibraryForVenue,
+  formatFeasibilityForTool,
+  formatLibraryAuditForTool,
+} from "@/lib/activity-feasibility";
 import { executeAdminAction, describeAdminAction, validateAdminToolCall } from "@/lib/admin-tools";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -207,6 +213,9 @@ export function useAssistant({
   const [pendingBulkConfirm, setPendingBulkConfirm] = useState<PendingBulkConfirm | null>(null);
   const messageIdCounter = useRef(0);
   const [knowledge, setKnowledge] = useState<{ category: string; title: string; content: string }[]>([]);
+  const [coaches, setCoaches] = useState<ProgramMember[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [venues, setVenues] = useState<Venue[]>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const supabaseRef = useRef(createClient());
@@ -229,6 +238,41 @@ export function useAssistant({
         if (data) setKnowledge(data);
       });
   }, []);
+
+  // Load coaches + players + venues for the active program. These feed the
+  // cached stable system prompt so the AI has roster/player/venue context
+  // available for every decision without calling a tool first.
+  useEffect(() => {
+    const programId = program?.id;
+    if (!programId) return;
+    const supabase = supabaseRef.current;
+
+    supabase
+      .from("sp_program_members")
+      .select("*")
+      .eq("program_id", programId)
+      .eq("status", "active")
+      .in("role", ["head_coach", "assistant_coach", "guest_coach"])
+      .then(({ data }: { data: ProgramMember[] | null }) => {
+        if (data) setCoaches(data);
+      });
+
+    supabase
+      .from("sp_players")
+      .select("*")
+      .eq("program_id", programId)
+      .eq("is_active", true)
+      .then(({ data }: { data: Player[] | null }) => {
+        if (data) setPlayers(data);
+      });
+
+    supabase
+      .from("sp_venues")
+      .select("*")
+      .then(({ data }: { data: Venue[] | null }) => {
+        if (data) setVenues(data);
+      });
+  }, [program?.id]);
 
   /** Load messages for a specific thread */
   const loadThread = useCallback(async (id: string) => {
@@ -432,6 +476,16 @@ export function useAssistant({
         return `Invite ${input.display_name} to the program as ${String(input.role || "").replace("_", " ")}${input.email ? ` (${input.email})` : ""}`;
       case "remove_coach":
         return `Deactivate ${input.coach_name} in the program`;
+      case "get_activity_details":
+        return `Fetch full details for activity ${input.activity_id?.slice?.(0, 8) || "?"}`;
+      case "audit_activity_feasibility":
+        return `Audit feasibility: activity ${input.activity_id?.slice?.(0, 8) || "?"}${input.venue_id ? ` at venue ${input.venue_id.slice(0, 8)}` : " at active venue"}`;
+      case "audit_library_for_venue":
+        return `Audit entire activity library${input.venue_id ? ` for venue ${input.venue_id.slice(0, 8)}` : " for active venue"}`;
+      case "refactor_activity":
+        return `Refactor activity ${input.activity_id?.slice?.(0, 8) || "?"} — ${input.refactor_rationale?.slice(0, 80) || "quality uplift"}`;
+      case "draft_activity_from_brief":
+        return `Draft new activity: "${input.name || "(unnamed)"}" from brief`;
       default:
         // Check if it's an admin tool
         if (toolName.startsWith("admin_")) {
@@ -629,6 +683,169 @@ export function useAssistant({
             return null; // Success
           } catch (err) {
             return `Failed to create activity: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "get_activity_details": {
+          try {
+            const supabase = createClient();
+            const { data, error } = await supabase
+              .from("sp_activities")
+              .select("*")
+              .eq("id", input.activity_id)
+              .single();
+            if (error || !data) return `Activity not found: ${input.activity_id}`;
+            // Return a compact serialisation — the AI only needs the tier
+            // content, coaching points, and constraints to reason about it.
+            return JSON.stringify(
+              {
+                id: data.id,
+                name: data.name,
+                category: data.category,
+                sub_category: data.sub_category,
+                description: data.description,
+                default_duration_mins: data.default_duration_mins,
+                default_lanes: data.default_lanes,
+                regression: data.regression,
+                progression: data.progression,
+                elite: data.elite,
+                gamify: data.gamify,
+                equipment: data.equipment,
+                between_sets_activity: data.between_sets_activity,
+                max_balls_per_batter: data.max_balls_per_batter,
+                // Migration 018 fields (may be undefined on pre-018 rows)
+                environment_required: data.environment_required,
+                min_ceiling_m: data.min_ceiling_m,
+                min_carry_m: data.min_carry_m,
+                min_run_distance_m: data.min_run_distance_m,
+                required_surfaces: data.required_surfaces,
+                safety_equipment_required: data.safety_equipment_required,
+                max_idle_pct: data.max_idle_pct,
+                engagement_notes: data.engagement_notes,
+              },
+              null,
+              2
+            );
+          } catch (err) {
+            return `Failed to fetch activity: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "audit_activity_feasibility": {
+          try {
+            const supabase = createClient();
+            const { data: act, error: actErr } = await supabase
+              .from("sp_activities")
+              .select("*")
+              .eq("id", input.activity_id)
+              .single();
+            if (actErr || !act) return `Activity not found: ${input.activity_id}`;
+
+            // Resolve venue — explicit param wins, else fall back to the
+            // active program's session venue if available, else first venue.
+            let venueRow = null;
+            if (input.venue_id) {
+              const { data } = await supabase.from("sp_venues").select("*").eq("id", input.venue_id).single();
+              venueRow = data;
+            }
+            if (!venueRow) {
+              venueRow = venues[0] || null;
+            }
+            if (!venueRow) return "No venue configured — add a venue in Settings before auditing.";
+
+            const result = checkActivityAgainstVenue(act as Activity, venueRow as Venue);
+            return formatFeasibilityForTool(result);
+          } catch (err) {
+            return `Failed to audit feasibility: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "audit_library_for_venue": {
+          try {
+            const supabase = createClient();
+            let venueRow = null;
+            if (input.venue_id) {
+              const { data } = await supabase.from("sp_venues").select("*").eq("id", input.venue_id).single();
+              venueRow = data;
+            }
+            if (!venueRow) {
+              venueRow = venues[0] || null;
+            }
+            if (!venueRow) return "No venue configured — add a venue in Settings before auditing.";
+
+            const { data: allActivities, error: actErr } = await supabase.from("sp_activities").select("*");
+            if (actErr || !allActivities) return `Failed to load library: ${actErr?.message || "no data"}`;
+
+            const audit = auditLibraryForVenue(allActivities as Activity[], venueRow as Venue);
+            return formatLibraryAuditForTool(audit);
+          } catch (err) {
+            return `Failed to audit library: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "refactor_activity": {
+          if (!isAdmin) {
+            return "Refactoring an activity requires head-coach admin access. Ask the head coach to apply this change.";
+          }
+          try {
+            const supabase = createClient();
+            const updates: Record<string, unknown> = {};
+            if (input.name) updates.name = input.name;
+            if (input.sub_category !== undefined) updates.sub_category = input.sub_category;
+            if (input.description !== undefined) updates.description = input.description;
+            if (input.regression) updates.regression = input.regression;
+            if (input.progression) updates.progression = input.progression;
+            if (input.elite) updates.elite = input.elite;
+            if (input.gamify) updates.gamify = input.gamify;
+            if (input.between_sets_activity !== undefined) updates.between_sets_activity = input.between_sets_activity;
+            if (input.environment_required) updates.environment_required = input.environment_required;
+            if (typeof input.min_ceiling_m === "number") updates.min_ceiling_m = input.min_ceiling_m;
+            if (typeof input.min_carry_m === "number") updates.min_carry_m = input.min_carry_m;
+            if (input.required_surfaces) updates.required_surfaces = input.required_surfaces;
+            if (typeof input.max_idle_pct === "number") updates.max_idle_pct = input.max_idle_pct;
+            if (input.engagement_notes !== undefined) updates.engagement_notes = input.engagement_notes;
+
+            if (Object.keys(updates).length === 0) {
+              return "Refactor had no fields to apply — nothing changed.";
+            }
+
+            const { error } = await supabase.from("sp_activities").update(updates).eq("id", input.activity_id);
+            if (error) return `Failed to refactor activity: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed to refactor activity: ${err instanceof Error ? err.message : "Unknown error"}`;
+          }
+        }
+
+        case "draft_activity_from_brief": {
+          if (!isAdmin) {
+            return "Drafting a new activity into the shared library requires head-coach admin access.";
+          }
+          try {
+            const supabase = createClient();
+            const { error } = await supabase.from("sp_activities").insert({
+              name: input.name,
+              category: input.category || "other",
+              sub_category: input.sub_category || null,
+              description: input.description,
+              default_duration_mins: input.default_duration_mins || 15,
+              default_lanes: input.default_lanes || 1,
+              regression: input.regression || {},
+              progression: input.progression || {},
+              elite: input.elite || {},
+              gamify: input.gamify || {},
+              between_sets_activity: input.between_sets_activity || null,
+              environment_required: input.environment_required || "either",
+              min_ceiling_m: typeof input.min_ceiling_m === "number" ? input.min_ceiling_m : null,
+              min_carry_m: typeof input.min_carry_m === "number" ? input.min_carry_m : null,
+              required_surfaces: input.required_surfaces || [],
+              max_idle_pct: typeof input.max_idle_pct === "number" ? input.max_idle_pct : null,
+              is_global: true,
+            });
+            if (error) return `Failed to draft activity: ${error.message}`;
+            return null;
+          } catch (err) {
+            return `Failed to draft activity: ${err instanceof Error ? err.message : "Unknown error"}`;
           }
         }
 
@@ -1534,8 +1751,12 @@ export function useAssistant({
         // Read live session data from the ref-based context at send time
         const activeAtSend = getActiveSession();
 
-        // Build system prompt with full program + session context
-        const systemPrompt = buildSystemPrompt({
+        // Split context for prompt caching: the stable half (framework,
+        // activities, rules, knowledge) goes in `system[]` and is cache-
+        // marked server-side; the volatile half (current session, grid
+        // blocks) is injected per-turn into the latest user message so
+        // it doesn't invalidate the cached prefix.
+        const ctxForPrompt = {
           session: activeAtSend?.session || undefined,
           blocks: activeAtSend?.blocks,
           activities,
@@ -1544,13 +1765,34 @@ export function useAssistant({
           phases,
           allSessions,
           knowledge,
+          coaches,
+          players,
+          venues,
           isAdmin,
+        };
+        const systemPrompt = buildStableSystemPrompt(ctxForPrompt);
+        const dynamicContext = buildDynamicContextBlock(ctxForPrompt);
+
+        // Prepend `<session_state>` to the LAST user message only.
+        // The cached system prefix above contains everything except
+        // the active session — this block is the authoritative live
+        // state for the current turn.
+        const apiMessagesWithContext = apiMessages.map((m, i) => {
+          if (i !== apiMessages.length - 1 || m.role !== "user") return m;
+          const contextBlock = { type: "text" as const, text: dynamicContext };
+          if (Array.isArray(m.content)) {
+            return { ...m, content: [contextBlock, ...m.content] };
+          }
+          return {
+            ...m,
+            content: [contextBlock, { type: "text" as const, text: m.content }],
+          };
         });
 
         const response = await fetch("/api/assistant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, systemPrompt, isAdmin }),
+          body: JSON.stringify({ messages: apiMessagesWithContext, systemPrompt, isAdmin }),
         });
 
         if (!response.ok) {
@@ -1587,6 +1829,8 @@ export function useAssistant({
         const INFORMATIONAL_TOOLS = new Set([
           "recall", "search_activities", "get_session_summary", "analyze_session",
           "list_sessions", "list_coaches", "get_session_roster",
+          // Feature 1 — Activity Intelligence (read-only lookups)
+          "get_activity_details", "audit_activity_feasibility", "audit_library_for_venue",
         ]);
 
         if (data.stop_reason === "tool_use" && toolCalls.length > 0) {
@@ -1604,9 +1848,11 @@ export function useAssistant({
               });
             }
 
-            // Build follow-up messages with tool results
+            // Build follow-up messages with tool results. Spread the
+            // context-injected list so Claude keeps seeing the same
+            // `<session_state>` block on the original user turn.
             const followUpApiMessages = [
-              ...apiMessages,
+              ...apiMessagesWithContext,
               { role: "assistant" as const, content: data.content },
               ...toolResults.map(tr => ({ role: "user" as const, content: [tr] })),
             ];

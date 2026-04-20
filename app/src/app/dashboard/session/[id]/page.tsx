@@ -395,6 +395,38 @@ export default function SessionPage() {
               {canEdit && (
                 <>
                   <button
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("rra:ask-assistant", {
+                          detail: {
+                            message:
+                              "Look at the current grid in the `<session_state>` block. Identify the most impactful empty gap (either the biggest unused block of time, or the next missing step in the arc — warm-up, main skill blocks, cool-down). Then call `analyze_session` to understand the current category/tier balance. Then propose THREE concrete drill options to fill that gap — each with: which activity from the library, which tier to run, exact time + lane placement, and a one-line justification tied to the phase and what's missing. Do NOT call `add_block` yet — present the three options and let me pick.",
+                          },
+                        })
+                      )
+                    }
+                    className="text-xs px-3 py-1.5 bg-gradient-to-r from-rr-pink/15 to-rr-blue/15 text-rr-charcoal dark:text-white font-semibold rounded-lg hover:from-rr-pink/25 hover:to-rr-blue/25 transition border border-rr-pink/20"
+                    title="Ask the AI Coach for 3 drill options tailored to the current grid gaps"
+                  >
+                    ⚡ Suggest Block
+                  </button>
+                  <button
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("rra:ask-assistant", {
+                          detail: {
+                            message:
+                              "Build me a full draft grid for the active session. Read the `<session_state>` block for the session time range, squad, and phase. Design a complete session: warm-up (10-15min), then skill blocks with rotations appropriate for the phase and squad size, then a cool-down. Use `audit_activity_feasibility` on each drill you pick so nothing fails at this venue. Assign coaches from the COACHING ROSTER matching their specialities. Call `analyze_session` on your proposed grid before presenting. Output as a structured list of `add_block` tool calls — do NOT apply; I'll review and approve.",
+                          },
+                        })
+                      )
+                    }
+                    className="text-xs px-3 py-1.5 bg-rr-blue/10 text-rr-blue font-semibold rounded-lg hover:bg-rr-blue/20 transition"
+                    title="Autopilot: draft a full session grid — review and apply"
+                  >
+                    ✨ Autopilot
+                  </button>
+                  <button
                     onClick={() => setCopyHourOpen(true)}
                     className="text-xs px-3 py-1.5 bg-rr-blue/10 text-rr-blue font-semibold rounded-lg hover:bg-rr-blue/20 transition"
                   >
@@ -417,6 +449,24 @@ export default function SessionPage() {
                     {clipboard.hasClipboard && <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">⌘V paste</span>}
                   </div>
                 </>
+              )}
+              {(session.status === "completed" || session.status === "published") && (
+                <button
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("rra:ask-assistant", {
+                        detail: {
+                          message:
+                            "Run a debrief for this session. Read the `<session_state>` block for what was planned, then ask me 3-5 targeted questions about how it actually went (attendance, which blocks landed well, which struggled, any player-specific moments, safety incidents, equipment issues, timing overruns). After I answer, use the `remember` tool to capture: (1) drill feedback tagged `drill_feedback` — name the activity + what worked/struggled, (2) player notes if I mentioned specific players tagged `player_note`, (3) preferences or rules I revealed tagged `preference` or `rule`. Also suggest 2-3 adjustments for next week's session plan based on what I told you. Keep the debrief under 60 seconds of my time.",
+                        },
+                      })
+                    )
+                  }
+                  className="text-xs px-3 py-1.5 bg-rr-pink/10 text-rr-pink font-semibold rounded-lg hover:bg-rr-pink/20 transition border border-rr-pink/20"
+                  title="60-second debrief — capture learnings into the AI's memory"
+                >
+                  📝 Debrief
+                </button>
               )}
               <span className={cn(
                 "px-3 py-1 rounded-full text-xs font-semibold",

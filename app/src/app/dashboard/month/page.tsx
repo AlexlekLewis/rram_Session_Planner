@@ -227,6 +227,22 @@ export default function MonthPage() {
             >
               Today
             </button>
+            <button
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("rra:ask-assistant", {
+                    detail: {
+                      message:
+                        "Plan the arc of the next phase. First use `list_sessions` to see what's scheduled and `recall` to pull any phase-specific preferences I've stored. Then, using the PHASES section and the active program's goals, propose: (a) a theme per remaining session in the upcoming phase, (b) tier progression across those sessions (R/P early, E/G late in the phase), (c) which coaching-framework focus each session emphasises (GFR, kinetic chain, intent clarity), (d) recommended guest coaches from the ROSTER matching each session's focus, (e) a note on what must land by the end of the phase. Present it as a table I can review. Do NOT apply any changes to sessions — give me the arc, I'll approve week by week.",
+                    },
+                  })
+                )
+              }
+              className="text-xs font-medium text-rr-pink bg-rr-pink/10 border border-rr-pink/20 px-2.5 py-1 rounded-lg hover:bg-rr-pink/20 transition"
+              title="Ask the AI Coach to plan the multi-session arc for the upcoming phase"
+            >
+              ✨ Plan Phase Arc
+            </button>
           </div>
 
           <div className="flex items-center gap-2">

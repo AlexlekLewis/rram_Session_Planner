@@ -52,12 +52,38 @@ export interface Phase {
   updated_at: string;
 }
 
+export type VenueType = "indoor" | "outdoor" | "hybrid";
+export type SurfaceType = "concrete" | "grass" | "synthetic_turf" | "artificial_mat" | "rubber";
+export type WeatherProtection = "fully_enclosed" | "covered" | "open";
+export type Lighting = "natural" | "artificial" | "mixed";
+
+export interface VenueSafetyFeatures {
+  padded_walls?: boolean;
+  netting?: boolean;
+  mats_available?: boolean;
+  first_aid?: boolean;
+  [key: string]: boolean | undefined;
+}
+
 export interface Venue {
   id: string;
   name: string;
   short_name?: string;
   address?: string;
   lanes: LaneConfig[];
+  // Environment profile (migration 018). Permissive defaults so pre-018
+  // rows still deserialize without blowing up the UI.
+  venue_type?: VenueType;
+  surface_types?: SurfaceType[];
+  ceiling_height_m?: number | null;
+  max_carry_m?: number | null;
+  max_run_distance_m?: number | null;
+  has_bowling_machines?: boolean;
+  bowling_machine_count?: number;
+  weather_protection?: WeatherProtection;
+  lighting?: Lighting;
+  safety_features?: VenueSafetyFeatures;
+  environment_notes?: string;
   created_at: string;
 }
 
@@ -274,6 +300,16 @@ export interface SessionBlock {
   updated_at: string;
 }
 
+export type EnvironmentRequirement = "indoor_ok" | "outdoor_only" | "either";
+
+export interface ActivitySafetyEquipment {
+  mats?: boolean;
+  helmets?: boolean;
+  pads?: boolean;
+  netting?: boolean;
+  [key: string]: boolean | undefined;
+}
+
 export interface Activity {
   id: string;
   name: string;
@@ -293,6 +329,18 @@ export interface Activity {
   coaching_framework: CoachingFramework;
   max_balls_per_batter?: number;
   between_sets_activity?: string;
+  // Feasibility + engagement constraints (migration 018). All optional —
+  // unset means the drill has no hard requirement on that axis.
+  environment_required?: EnvironmentRequirement;
+  min_ceiling_m?: number | null;
+  min_carry_m?: number | null;
+  min_run_distance_m?: number | null;
+  required_surfaces?: SurfaceType[];
+  safety_equipment_required?: ActivitySafetyEquipment;
+  min_players?: number | null;
+  max_players_per_lane?: number | null;
+  max_idle_pct?: number | null;
+  engagement_notes?: string;
   created_by?: string;
   is_global: boolean;
   created_at: string;

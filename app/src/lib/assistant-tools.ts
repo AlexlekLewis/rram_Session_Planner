@@ -539,6 +539,204 @@ export const ASSISTANT_TOOLS = [
       required: ["coach_name"],
     },
   },
+  // ==========================================================================
+  // Activity Intelligence Studio (Feature 1)
+  // These tools give the AI deep access to individual activity data, plus
+  // venue-aware feasibility checking and library-wide audit. Informational
+  // tools (get_activity_details, audit_*) auto-execute; refactor/draft
+  // mutate the library and require user approval via the Apply button.
+  // ==========================================================================
+  {
+    name: "get_activity_details",
+    description:
+      "Fetch the full record for a single activity, including all four tier details (R/P/E/G), coaching points, equipment, venue constraints, and engagement settings. " +
+      "The system prompt only lists activity names + categories to save tokens — call this whenever you need the real detail: before refactoring, before auditing feasibility, before citing a specific drill's coaching points, or whenever the coach asks 'how does X work'. " +
+      "ALWAYS call this before refactoring or recommending a specific drill — never fabricate tier content.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        activity_id: { type: "string", description: "UUID of the activity" },
+      },
+      required: ["activity_id"],
+    },
+  },
+  {
+    name: "audit_activity_feasibility",
+    description:
+      "Check whether an activity can actually run in a given venue, based on its stored constraints (min_ceiling_m, min_carry_m, required_surfaces, safety_equipment_required, environment_required) against the venue's environment profile. " +
+      "Returns a verdict (feasible / partial / infeasible), a list of specific blockers (e.g. 'activity needs 5m ceiling, venue has 4.5m'), and tier-adjusted adaptations where possible (e.g. 'run the Regression tier here — it uses underarm feeds and stays within the carry limit'). " +
+      "USE THIS before recommending a drill to a session, before the coach asks 'does this work at CEC', and as part of any library audit.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        activity_id: { type: "string", description: "UUID of the activity to check" },
+        venue_id: {
+          type: "string",
+          description: "Optional UUID of the venue. If omitted, uses the active program's primary venue.",
+        },
+      },
+      required: ["activity_id"],
+    },
+  },
+  {
+    name: "audit_library_for_venue",
+    description:
+      "Run audit_activity_feasibility across EVERY activity in the library for a given venue, and return a structured report grouped by verdict: which drills work as-is, which work with a tier downgrade, which need an adaptation, and which are flat-out infeasible. " +
+      "Use when the coach says 'audit my library for CEC', 'which of my drills actually work here', or 'clean up activities that don't fit this venue'. " +
+      "Output is a prioritised action list — do NOT run any refactors automatically. Present the findings and let the coach decide what to refactor.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        venue_id: {
+          type: "string",
+          description: "Optional UUID of the venue. If omitted, uses the active program's primary venue.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "refactor_activity",
+    description:
+      "Propose an improved version of an existing activity. The AI rewrites the R/P/E/G tiers to hit the elite-program quality bar: (a) Regression actually simplifies, (b) Progression adds meaningful challenge, (c) Elite matches match-pace and references the kinetic chain, (d) Gamify has real scoring rules AND a consequence. " +
+      "Also improves coaching points, surface/ceiling/engagement constraints to match the venue profile, and adds between-sets activities to keep engagement above 60%. " +
+      "Before calling, ALWAYS call get_activity_details first so you're refactoring from the real content, not from the name. " +
+      "This is MUTATIVE — it returns a proposed update that the coach reviews and approves via the Apply button. Do not assume it has been saved.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        activity_id: { type: "string", description: "UUID of the activity to refactor" },
+        improvements: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of specific improvements to focus on (e.g. 'strengthen the Gamify tier', 'add venue constraints for CEC', 'cut standing time'). If omitted, refactor everything below standard.",
+        },
+        name: { type: "string", description: "New activity name (usually unchanged — only set if the old name was misleading)" },
+        sub_category: { type: "string" },
+        description: { type: "string" },
+        regression: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        progression: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        elite: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        gamify: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            scoring_rules: { type: "string" },
+            consequence: { type: "string" },
+          },
+        },
+        between_sets_activity: { type: "string", description: "What players do between sets (e.g. 'Running 3s', 'Footwork drill with a cone'). Critical for engagement." },
+        environment_required: { type: "string", enum: ["indoor_ok", "outdoor_only", "either"] },
+        min_ceiling_m: { type: "number" },
+        min_carry_m: { type: "number" },
+        required_surfaces: {
+          type: "array",
+          items: { type: "string", enum: ["concrete", "grass", "synthetic_turf", "artificial_mat", "rubber"] },
+        },
+        max_idle_pct: { type: "number", description: "Max acceptable per-player idle time as a percentage. Lower is better — target under 40 for elite programs." },
+        engagement_notes: { type: "string" },
+        refactor_rationale: {
+          type: "string",
+          description: "Required. A short summary of WHAT you changed and WHY — shown to the coach in the Apply dialog.",
+        },
+      },
+      required: ["activity_id", "refactor_rationale"],
+    },
+  },
+  {
+    name: "draft_activity_from_brief",
+    description:
+      "Generate a complete new activity from a short brief. The brief can describe the drill in plain language, paste a YouTube link, reference a known coaching concept, or describe what a video shows. " +
+      "The AI drafts ALL four tiers (R/P/E/G) to elite standard, including coaching points tied to the RRA framework (GFR, kinetic chain, intent clarity), equipment lists, between-sets activity, and venue constraints appropriate for the active venue. " +
+      "This is MUTATIVE — returns a proposed new activity for the coach to review and save via the Apply button. Does NOT save automatically. " +
+      "Before drafting, consult the venue profile in the system prompt and set realistic constraints (no 5m ceilings if CEC is the target venue, etc.).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        brief: {
+          type: "string",
+          description: "Short description, paste, URL reference, or video description describing what the drill should do",
+        },
+        category: {
+          type: "string",
+          enum: ["batting", "batting_power", "pace_bowling", "spin_bowling", "wicketkeeping", "fielding", "fitness", "mental", "tactical", "warmup", "cooldown"],
+          description: "Optional category hint. If omitted, the AI infers from the brief.",
+        },
+        venue_id: {
+          type: "string",
+          description: "Optional venue to target. If omitted, uses the active program's primary venue so constraints are realistic.",
+        },
+        name: { type: "string", description: "Activity name — derive from the brief" },
+        sub_category: { type: "string" },
+        description: { type: "string" },
+        default_duration_mins: { type: "number" },
+        default_lanes: { type: "number" },
+        regression: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        progression: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        elite: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            coaching_points: { type: "array", items: { type: "string" } },
+            equipment: { type: "array", items: { type: "string" } },
+          },
+        },
+        gamify: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            scoring_rules: { type: "string" },
+            consequence: { type: "string" },
+          },
+        },
+        between_sets_activity: { type: "string" },
+        environment_required: { type: "string", enum: ["indoor_ok", "outdoor_only", "either"] },
+        min_ceiling_m: { type: "number" },
+        min_carry_m: { type: "number" },
+        required_surfaces: {
+          type: "array",
+          items: { type: "string", enum: ["concrete", "grass", "synthetic_turf", "artificial_mat", "rubber"] },
+        },
+        max_idle_pct: { type: "number" },
+      },
+      required: ["brief", "name", "description", "regression", "progression", "elite", "gamify"],
+    },
+  },
 ];
 
 /**

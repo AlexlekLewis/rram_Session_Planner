@@ -199,16 +199,52 @@ export default function LibraryPage() {
             {activities.length} activities with R/P/E/G tier variants
           </p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="px-4 py-2 rounded-lg font-medium text-white transition-all"
-          style={{
-            backgroundColor: "#E11F8F",
-            fontFamily: "Montserrat",
-          }}
-        >
-          + Add Activity
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("rra:ask-assistant", {
+                  detail: {
+                    message:
+                      "Draft a brand new activity for the library. Ask me a few quick questions (category, what the drill should achieve, skill focus, target tier, any video or description I should reference) then use `draft_activity_from_brief` with all four R/P/E/G tiers filled to elite standard, coaching points tied to the RRA framework, and venue constraints that match our primary venue.",
+                  },
+                })
+              )
+            }
+            className="px-3 py-2 rounded-lg font-medium text-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-rr-charcoal dark:text-gray-100 hover:border-rr-pink hover:text-rr-pink dark:hover:text-rr-pink transition-all"
+            style={{ fontFamily: "Montserrat" }}
+            title="Ask the AI Coach to draft a new activity with all four tiers"
+          >
+            ✨ Draft with AI
+          </button>
+          <button
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("rra:ask-assistant", {
+                  detail: {
+                    message:
+                      "Audit the entire activity library against our primary venue using `audit_library_for_venue`. Give me a prioritised list: activities that work as-is, activities that need a tier downgrade, activities that need refactoring (with specific fixes), and activities that physically can't run here. Quote the blockers verbatim.",
+                  },
+                })
+              )
+            }
+            className="px-3 py-2 rounded-lg font-medium text-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-rr-charcoal dark:text-gray-100 hover:border-rr-blue hover:text-rr-blue dark:hover:text-rr-blue transition-all"
+            style={{ fontFamily: "Montserrat" }}
+            title="Ask the AI Coach to audit every activity against the active venue"
+          >
+            🔍 Audit for Venue
+          </button>
+          <button
+            onClick={openAddModal}
+            className="px-4 py-2 rounded-lg font-medium text-white transition-all"
+            style={{
+              backgroundColor: "#E11F8F",
+              fontFamily: "Montserrat",
+            }}
+          >
+            + Add Activity
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -311,6 +347,21 @@ export default function LibraryPage() {
                   className="flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   Edit
+                </button>
+                <button
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("rra:ask-assistant", {
+                        detail: {
+                          message: `Improve activity ${activity.id} ("${activity.name}"). First call \`get_activity_details\` to read the current content, then call \`audit_activity_feasibility\` for our primary venue. Then propose a \`refactor_activity\` that: tightens the R/P/E/G tiers to elite standard (real simplification at R, real challenge at P, match-pace + kinetic-chain at E, scoring-rules + consequence at G), adds a between-sets activity so engagement stays above 60%, sets venue constraints that match the audit, and explains what you changed in \`refactor_rationale\`. Do NOT apply it — I want to review it first.`,
+                        },
+                      })
+                    )
+                  }
+                  className="flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-rr-pink/30 text-rr-pink hover:bg-rr-pink/5 transition-colors"
+                  title="Ask the AI Coach to refactor this activity to elite standard"
+                >
+                  ✨ Improve
                 </button>
                 <button
                   onClick={() => setDeleteConfirm(activity.id)}

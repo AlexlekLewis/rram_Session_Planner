@@ -9,8 +9,12 @@ import { ADMIN_TOOLS } from "@/lib/admin-tools";
  * tool definitions. The ANTHROPIC_API_KEY is server-side only —
  * never exposed to the client.
  *
- * PATTERN: Next.js API route → Anthropic Messages API with tool-use
- * SOURCE: Anthropic docs — "Tool use" + "Streaming Messages"
+ * Model: claude-opus-4-7. Prompt caching is enabled via ephemeral
+ * cache_control on the system block — this caches tools + system
+ * together (Anthropic renders tools → system → messages, so one
+ * breakpoint on the last system block covers both). Cache hits
+ * require byte-identical prefixes; dynamic session state baked
+ * into the system prompt will miss — see assistant-context.ts.
  */
 
 export async function POST(request: NextRequest) {
@@ -43,9 +47,15 @@ export async function POST(request: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-20250514",
+        model: "claude-opus-4-7",
         max_tokens: 4096,
-        system: systemPrompt,
+        system: [
+          {
+            type: "text",
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
         messages: messages.slice(-20), // Trim to last 20 messages to manage context
         tools: isAdmin ? [...ASSISTANT_TOOLS, ...ADMIN_TOOLS] : ASSISTANT_TOOLS,
       }),

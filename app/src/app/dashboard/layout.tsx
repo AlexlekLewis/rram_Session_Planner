@@ -214,6 +214,7 @@ function DashboardLayoutInner({
         <GlobalAssistant
           isOpen={assistantOpen}
           onClose={() => setAssistantOpen(false)}
+          onRequestOpen={() => setAssistantOpen(true)}
           allActivities={allActivities}
           globalSquads={globalSquads}
           program={program}
@@ -288,6 +289,7 @@ function SettingsIcon({ className }: { className?: string }) {
 function GlobalAssistant({
   isOpen,
   onClose,
+  onRequestOpen,
   allActivities,
   globalSquads,
   program,
@@ -299,6 +301,7 @@ function GlobalAssistant({
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onRequestOpen: () => void;
   allActivities: Activity[];
   globalSquads: Squad[];
   program: Program | null;
@@ -328,6 +331,21 @@ function GlobalAssistant({
     onSessionUpdated,
     isAdmin,
   });
+
+  // Cross-page "ask the AI" entry point. Any page can call
+  // window.dispatchEvent(new CustomEvent("rra:ask-assistant", { detail: { message } }))
+  // and we'll open the panel + send the message.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ message?: string }>;
+      const message = customEvent.detail?.message;
+      if (!message) return;
+      onRequestOpen();
+      assistant.sendMessage(message);
+    };
+    window.addEventListener("rra:ask-assistant", handler);
+    return () => window.removeEventListener("rra:ask-assistant", handler);
+  }, [assistant, onRequestOpen]);
 
   return (
     <AssistantPanel
