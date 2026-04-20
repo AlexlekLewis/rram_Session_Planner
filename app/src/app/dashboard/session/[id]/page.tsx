@@ -75,6 +75,14 @@ export default function SessionPage() {
   const undoRedo = useUndoRedo();
   const clipboard = useClipboard();
 
+  // Keep useUndoRedo's internal "current" in sync with live blocks. Covers
+  // DB hydration, realtime pushes, and post-mutation re-renders — without
+  // this, rapid undo→redo would push a stale snapshot onto the redo stack
+  // (the C1 race). See app/src/hooks/useUndoRedo.ts for the state machine.
+  useEffect(() => {
+    undoRedo.syncCurrent(blockManager.blocks);
+  }, [blockManager.blocks, undoRedo]);
+
   // Realtime sync — must be initialized before auto-save so trackSavedBlock is available
   const { trackSavedBlock } = useRealtimeSync({
     sessionId,
@@ -149,7 +157,7 @@ export default function SessionPage() {
       // Ctrl+Z — Undo
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
-        const prev = undoRedo.undo(blockManager.blocks);
+        const prev = undoRedo.undo();
         if (prev) {
           blockManager.setBlocks(prev);
           blockManager.markDirty();
@@ -158,7 +166,7 @@ export default function SessionPage() {
       // Ctrl+Shift+Z — Redo
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
         e.preventDefault();
-        const next = undoRedo.redo(blockManager.blocks);
+        const next = undoRedo.redo();
         if (next) {
           blockManager.setBlocks(next);
           blockManager.markDirty();
